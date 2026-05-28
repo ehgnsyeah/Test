@@ -1,0 +1,54 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 3D Axis Lines extending behind the cube -->
+    <!-- Z axis (vertical up - Amber) -->
+    <path
+        android:strokeColor="#FFC107"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,54 L54,15" />
+
+    <!-- X axis (left down - Green) -->
+    <path
+        android:strokeColor="#4CAF50"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,54 L15,74" />
+
+    <!-- Y axis (right down - Blue) -->
+    <path
+        android:strokeColor="#2196F3"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,54 L93,74" />
+
+    <!-- Isometric Solid Shaded CAD Cube -->
+    <!-- Top Face (lighter blue fill) -->
+    <path
+        android:fillColor="#802196F3"
+        android:strokeColor="#2196F3"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M54,30 L77,42 L54,54 L31,42 Z" />
+
+    <!-- Left Face (medium blue fill) -->
+    <path
+        android:fillColor="#4D2196F3"
+        android:strokeColor="#2196F3"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M31,42 L54,54 L54,78 L31,66 Z" />
+
+    <!-- Right Face (darker blue fill) -->
+    <path
+        android:fillColor="#332196F3"
+        android:strokeColor="#2196F3"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M54,54 L77,42 L77,66 L54,78 Z" />
+
+</vector>

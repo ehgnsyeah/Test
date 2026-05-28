@@ -1,0 +1,6 @@
+{
+  "name": "3D CAD Modeler",
+  "description": "A precise, feature-rich 3D CAD and modeling environment on Android with layered designs, measurements, and object transformations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
