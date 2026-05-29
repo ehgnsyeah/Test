@@ -61,6 +61,28 @@ class CadViewModel(
     private val _showSplittingPreview = MutableStateFlow(false)
     val showSplittingPreview: StateFlow<Boolean> = _showSplittingPreview.asStateFlow()
 
+    // Reference images state flow
+    private val _referenceImages = MutableStateFlow<List<ReferenceImage>>(emptyList())
+    val referenceImages: StateFlow<List<ReferenceImage>> = _referenceImages.asStateFlow()
+
+    fun addReferenceImage(name: String, uriString: String, plane: String = "TOP") {
+        val newImg = ReferenceImage(name = name, uriString = uriString, plane = plane, scale = 1.0f, opacity = 0.5f)
+        _referenceImages.value = _referenceImages.value + newImg
+        showStatus("참조 이미지 추가 완료: $name")
+    }
+
+    fun updateReferenceImage(image: ReferenceImage) {
+        _referenceImages.value = _referenceImages.value.map {
+            if (it.id == image.id) image else it
+        }
+    }
+
+    fun removeReferenceImage(id: String) {
+        val name = _referenceImages.value.find { it.id == id }?.name ?: ""
+        _referenceImages.value = _referenceImages.value.filter { it.id != id }
+        showStatus("참조 이미지 삭제 완료: $name")
+    }
+
     // Undo/Redo stack history lists
     private val undoStack = mutableListOf<List<CadEntity>>()
     private val redoStack = mutableListOf<List<CadEntity>>()

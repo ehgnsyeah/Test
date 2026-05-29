@@ -50,6 +50,19 @@ data class CadLayer(
     val isLocked: Boolean = false
 )
 
+data class ReferenceImage(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val uriString: String,
+    val x: Float = 0f,
+    val y: Float = 0f,
+    val z: Float = 0f,
+    val scale: Float = 1.0f,
+    val opacity: Float = 0.5f,
+    val plane: String = "TOP", // TOP (XY), FRONT (XZ), RIGHT (YZ)
+    val isVisible: Boolean = true
+)
+
 object CadDefaults {
     val DefaultLayers = listOf(
         CadLayer("0", "주요 도면 (Main)", "#FF2196F3"),

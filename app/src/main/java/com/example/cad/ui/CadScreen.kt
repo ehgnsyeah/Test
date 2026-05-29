@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,6 +42,13 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.text.TextStyle
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -72,6 +80,7 @@ fun CadScreen(
     var showPresetProfilesDialog by remember { mutableStateOf(false) }
     var saveProjectNameInput by remember { mutableStateOf("") }
     var showLayersPanel by remember { mutableStateOf(false) }
+    var showImagePanel by remember { mutableStateOf(false) }
     var showMeasurementPanel by remember { mutableStateOf(true) }
     var showGridPanel by remember { mutableStateOf(false) }
 
@@ -81,6 +90,19 @@ fun CadScreen(
     var showDimEditDialog by remember { mutableStateOf(false) }
     var editingDim by remember { mutableStateOf<BlueprintDim?>(null) }
     var editValueInput by remember { mutableStateOf("") }
+
+    val imagePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val defaultPlane = when (current2DPlane) {
+                ViewportMode.FRONT -> "FRONT"
+                ViewportMode.RIGHT -> "RIGHT"
+                else -> "TOP"
+            }
+            viewModel.addReferenceImage("수동 추가 도면", uri.toString(), defaultPlane)
+        }
+    }
 
     // Direct Vertex coordinates editing states
     var activeVertexEditIndex by remember { mutableStateOf(-1) }
@@ -174,6 +196,16 @@ fun CadScreen(
                             contentDescription = "레이어 설정",
                             tint = if (showLayersPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.testTag("btn_layers_toggle")
+                        )
+                    }
+
+                    // Reference Image Blueprint Tracer Toggler
+                    IconButton(onClick = { showImagePanel = !showImagePanel }) {
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = "참조 백그라운드 도면 이미지 설정",
+                            tint = if (showImagePanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("btn_images_toggle")
                         )
                     }
 
@@ -846,6 +878,262 @@ fun CadScreen(
                                                 modifier = Modifier.size(14.dp),
                                                 tint = if (layer.isLocked) Color(0xFFFF5252) else Color.Gray
                                             )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- Floating Overlay: Reference Image Tracer Settings Panel (Left Top/Side) ---
+                val referenceImages by viewModel.referenceImages.collectAsStateWithLifecycle()
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showImagePanel,
+                    enter = slideInHorizontally { -it } + fadeIn(),
+                    exit = slideOutHorizontally { -it } + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 12.dp, top = 220.dp)
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .width(280.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            // Header Row
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.Image,
+                                        contentDescription = "Tracer",
+                                        tint = Color(0xFF00E5FF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "참조 백그라운드 도면",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { showImagePanel = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "닫기", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Load and Pick Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        // Load default sample blueprint from Unsplash/direct URL
+                                        val testUrl = "https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&w=600&q=80"
+                                        viewModel.addReferenceImage("기본 가구 배치 도안", testUrl, "TOP")
+                                    },
+                                    modifier = Modifier.weight(1f).testTag("btn_load_sample_tracer"),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text("샘플 가이드 추가", fontSize = 10.sp)
+                                }
+                                
+                                Button(
+                                    onClick = {
+                                        imagePicker.launch("image/*")
+                                    },
+                                    modifier = Modifier.weight(1f).testTag("btn_pick_device_tracer"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text("기기 사진 선택", fontSize = 10.sp)
+                                }
+                            }
+                            
+                            if (referenceImages.isEmpty()) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = "추가된 참조 도안이 없습니다. 샘플 추가 또는 기기 도안을 추가하고 정렬해 보세요.",
+                                    fontSize = 10.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                    textAlign = TextAlign.Center
+                                )
+                            } else {
+                                Divider(modifier = Modifier.padding(vertical = 10.dp))
+                                
+                                LazyColumn(
+                                    modifier = Modifier.heightIn(max = 240.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    items(referenceImages) { img ->
+                                        Card(
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                // Item title + Delete icon
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text(
+                                                        text = img.name,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 11.sp,
+                                                        maxLines = 1,
+                                                        modifier = Modifier.weight(1f),
+                                                        color = Color(0xFF00E5FF)
+                                                    )
+                                                    
+                                                    // Visibility Switch and Delete button
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        IconButton(
+                                                            onClick = { 
+                                                                viewModel.updateReferenceImage(img.copy(isVisible = !img.isVisible))
+                                                            },
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = if (img.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                                                contentDescription = "Tracer 가시성",
+                                                                modifier = Modifier.size(14.dp),
+                                                                tint = if (img.isVisible) Color(0xFF00E5FF) else Color.Gray
+                                                            )
+                                                        }
+                                                        
+                                                        IconButton(
+                                                            onClick = { viewModel.removeReferenceImage(img.id) },
+                                                            modifier = Modifier.size(24.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Delete,
+                                                                contentDescription = "Tracer 삭제",
+                                                                modifier = Modifier.size(14.dp),
+                                                                tint = Color(0xFFFF5252)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                
+                                                // Plane Projection Choice (TOP, FRONT, RIGHT)
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("정사영 투영면:", fontSize = 9.sp, modifier = Modifier.weight(1f))
+                                                    listOf("TOP", "FRONT", "RIGHT").forEach { pName ->
+                                                        val isSelected = img.plane == pName
+                                                        Text(
+                                                            text = pName,
+                                                            fontSize = 8.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = if (isSelected) Color.Black else Color.White,
+                                                            modifier = Modifier
+                                                                .clip(RoundedCornerShape(4.dp))
+                                                                .background(if (isSelected) Color(0xFF00E5FF) else Color(0xFF333D52))
+                                                                .clickable {
+                                                                    viewModel.updateReferenceImage(img.copy(plane = pName))
+                                                                }
+                                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                                
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                
+                                                // Opacity Slider
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("투명도", fontSize = 9.sp, modifier = Modifier.width(32.dp))
+                                                    Slider(
+                                                        value = img.opacity,
+                                                        onValueChange = { newVal ->
+                                                            viewModel.updateReferenceImage(img.copy(opacity = newVal))
+                                                        },
+                                                        valueRange = 0.1f..1f,
+                                                        modifier = Modifier.weight(1f).height(18.dp)
+                                                    )
+                                                    Text("${(img.opacity * 100).toInt()}%", fontSize = 8.sp, modifier = Modifier.width(24.dp), textAlign = TextAlign.End)
+                                                }
+                                                
+                                                // Scale Slider
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("배율", fontSize = 9.sp, modifier = Modifier.width(32.dp))
+                                                    Slider(
+                                                        value = img.scale,
+                                                        onValueChange = { newVal ->
+                                                            viewModel.updateReferenceImage(img.copy(scale = newVal))
+                                                        },
+                                                        valueRange = 0.2f..4.0f,
+                                                        modifier = Modifier.weight(1f).height(18.dp)
+                                                    )
+                                                    Text(String.format("%.1fx", img.scale), fontSize = 8.sp, modifier = Modifier.width(28.dp), textAlign = TextAlign.End)
+                                                }
+
+                                                // Position alignment sliders/buttons
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("좌우 X", fontSize = 9.sp, modifier = Modifier.width(32.dp))
+                                                    Slider(
+                                                        value = img.x,
+                                                        onValueChange = { newVal ->
+                                                            viewModel.updateReferenceImage(img.copy(x = newVal))
+                                                        },
+                                                        valueRange = -400f..400f,
+                                                        modifier = Modifier.weight(1f).height(18.dp)
+                                                    )
+                                                    Text("${img.x.toInt()}", fontSize = 8.sp, modifier = Modifier.width(24.dp), textAlign = TextAlign.End)
+                                                }
+
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text("상하 Y", fontSize = 9.sp, modifier = Modifier.width(32.dp))
+                                                    Slider(
+                                                        value = img.y,
+                                                        onValueChange = { newVal ->
+                                                            viewModel.updateReferenceImage(img.copy(y = newVal))
+                                                        },
+                                                        valueRange = -400f..400f,
+                                                        modifier = Modifier.weight(1f).height(18.dp)
+                                                    )
+                                                    Text("${img.y.toInt()}", fontSize = 8.sp, modifier = Modifier.width(24.dp), textAlign = TextAlign.End)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2870,6 +3158,43 @@ fun getEditableVertices2D(
 }
 
 @Composable
+fun rememberReferenceImagesBitmaps(referenceImages: List<ReferenceImage>): Map<String, ImageBitmap> {
+    val context = LocalContext.current
+    val bitmaps = remember { mutableStateMapOf<String, ImageBitmap>() }
+    
+    LaunchedEffect(referenceImages) {
+        referenceImages.forEach { img ->
+            if (!bitmaps.containsKey(img.id)) {
+                kotlinx.coroutines.Dispatchers.IO.let { ioDispatcher ->
+                    kotlinx.coroutines.withContext(ioDispatcher) {
+                        try {
+                            val bmp = if (img.uriString.startsWith("http")) {
+                                val url = java.net.URL(img.uriString)
+                                val connection = url.openConnection() as java.net.HttpURLConnection
+                                connection.doInput = true
+                                connection.connect()
+                                val input = connection.inputStream
+                                android.graphics.BitmapFactory.decodeStream(input)
+                            } else {
+                                val uri = android.net.Uri.parse(img.uriString)
+                                val inputStream = context.contentResolver.openInputStream(uri)
+                                android.graphics.BitmapFactory.decodeStream(inputStream)
+                            }
+                            if (bmp != null) {
+                                bitmaps[img.id] = bmp.asImageBitmap()
+                            }
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return bitmaps
+}
+
+@Composable
 fun Solid3DWorkspace(
     entities: List<CadEntity>,
     selectedEntityId: String?,
@@ -2891,17 +3216,27 @@ fun Solid3DWorkspace(
     val slicePosVal by viewModel.slicePlanePos.collectAsStateWithLifecycle()
     val showGrid by viewModel.showGrid.collectAsStateWithLifecycle()
     val gridPlane by viewModel.gridPlane.collectAsStateWithLifecycle()
+    val referenceImages by viewModel.referenceImages.collectAsStateWithLifecycle()
+    val textMeasurer = rememberTextMeasurer()
+
+    // Key Gesture performance optimization fields (avoids re-creating pointerInput on every micro-drag frame)
+    val currentCameraState by rememberUpdatedState(cameraState)
+    val currentSelectedEntity by rememberUpdatedState(selectedEntity)
+    val currentDragControlMode by rememberUpdatedState(dragControlMode)
+    val currentEntities by rememberUpdatedState(entities)
 
     Canvas(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF111622)) // Ultra deep slate/navy color
-            .pointerInput(selectedEntity, cameraState, viewMode, dragControlMode) {
+            .pointerInput(viewMode) {
                 detectDragGestures(
                     onDragStart = { startOffset ->
                         viewModel.recordHistoryState()
-                        if (selectedEntity != null) {
-                            val vertices = getEditableVertices(selectedEntity, cameraState, viewMode, size.width.toFloat(), size.height.toFloat())
+                        val selEntity = currentSelectedEntity
+                        val camState = currentCameraState
+                        if (selEntity != null) {
+                            val vertices = getEditableVertices(selEntity, camState, viewMode, size.width.toFloat(), size.height.toFloat())
                             val clicked = vertices.find { ev ->
                                 val dist = kotlin.math.sqrt((startOffset.x - ev.screenPos.x) * (startOffset.x - ev.screenPos.x) + (startOffset.y - ev.screenPos.y) * (startOffset.y - ev.screenPos.y))
                                 dist < 45f // touch target sensitivity
@@ -2917,14 +3252,17 @@ fun Solid3DWorkspace(
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        if (draggedVertexIndex != -1 && selectedEntity != null) {
-                            val rx_rad = Math.toRadians(selectedEntity.rx.toDouble()).toFloat()
-                            val ry_rad = Math.toRadians(selectedEntity.ry.toDouble()).toFloat()
-                            val rz_rad = Math.toRadians(selectedEntity.rz.toDouble()).toFloat()
-                            val yawRad = Math.toRadians(cameraState.yaw.toDouble()).toFloat()
-                            val pitchRad = Math.toRadians(cameraState.pitch.toDouble()).toFloat()
+                        val selEntity = currentSelectedEntity
+                        val camState = currentCameraState
+                        val dragCtrlMode = currentDragControlMode
+                        if (draggedVertexIndex != -1 && selEntity != null) {
+                            val rx_rad = Math.toRadians(selEntity.rx.toDouble()).toFloat()
+                            val ry_rad = Math.toRadians(selEntity.ry.toDouble()).toFloat()
+                            val rz_rad = Math.toRadians(selEntity.rz.toDouble()).toFloat()
+                            val yawRad = Math.toRadians(camState.yaw.toDouble()).toFloat()
+                            val pitchRad = Math.toRadians(camState.pitch.toDouble()).toFloat()
 
-                            val geom = generateEntityGeometry(selectedEntity)
+                            val geom = generateEntityGeometry(selEntity)
                             val worldVertices = geom.first
                             if (draggedVertexIndex < worldVertices.size) {
                                 val v_world = worldVertices[draggedVertexIndex]
@@ -2938,7 +3276,7 @@ fun Solid3DWorkspace(
                                 } else {
                                     0.8f
                                 }
-                                val zoomScale = factor * cameraState.zoom
+                                val zoomScale = factor * camState.zoom
 
                                 val dcx = dragAmount.x / zoomScale
                                 val dcy = -dragAmount.y / zoomScale
@@ -2950,16 +3288,16 @@ fun Solid3DWorkspace(
                                 d_local = MathUtils.rotateY(d_local, -ry_rad)
                                 d_local = MathUtils.rotateX(d_local, -rx_rad)
 
-                                when (selectedEntity.type) {
+                                when (selEntity.type) {
                                     EntityType.POLYLINE -> {
-                                        val currentPts = selectedEntity.polylinePoints ?: emptyList()
+                                        val currentPts = selEntity.polylinePoints ?: emptyList()
                                         if (draggedVertexIndex < currentPts.size) {
                                             val currPt = currentPts[draggedVertexIndex]
                                             viewModel.updatePolylinePoint(draggedVertexIndex, currPt.x + d_local.x, currPt.y + d_local.y, currPt.z + d_local.z, saveToHistory = false)
                                         }
                                     }
                                     EntityType.EXTRUSION -> {
-                                        val profile = if (selectedEntity.extrusionProfile != null && selectedEntity.extrusionProfile.isNotEmpty()) selectedEntity.extrusionProfile else CadDefaults.ProfileHexagon
+                                        val profile = if (selEntity.extrusionProfile != null && selEntity.extrusionProfile.isNotEmpty()) selEntity.extrusionProfile else CadDefaults.ProfileHexagon
                                         val numPoints = profile.size
                                         val profileIndex = draggedVertexIndex % numPoints
                                         if (profileIndex < profile.size) {
@@ -2968,14 +3306,14 @@ fun Solid3DWorkspace(
                                         }
                                     }
                                     else -> {
-                                        val offsets = selectedEntity.vertexOffsets ?: emptyList()
+                                        val offsets = selEntity.vertexOffsets ?: emptyList()
                                         val currOffset = if (draggedVertexIndex < offsets.size) offsets[draggedVertexIndex] else Point3D(0f, 0f, 0f)
                                         viewModel.updateVertexOffset(draggedVertexIndex, currOffset.x + d_local.x, currOffset.y + d_local.y, currOffset.z + d_local.z, saveToHistory = false)
                                     }
                                 }
                             }
                         } else {
-                            if (dragControlMode == "ORBIT") {
+                            if (dragCtrlMode == "ORBIT") {
                                 viewModel.rotateYaw(-dragAmount.x * 0.35f)
                                 viewModel.rotatePitch(dragAmount.y * 0.35f)
                             } else {
@@ -2988,16 +3326,19 @@ fun Solid3DWorkspace(
                     }
                 )
             }
-            .pointerInput(selectedEntity, cameraState, viewMode) {
+            .pointerInput(viewMode) {
                 detectTapGestures { offset ->
-                    if (selectedEntity != null) {
-                        val vertices = getEditableVertices(selectedEntity, cameraState, viewMode, size.width.toFloat(), size.height.toFloat())
+                    val selEntity = currentSelectedEntity
+                    val camState = currentCameraState
+                    val ents = currentEntities
+                    if (selEntity != null) {
+                        val vertices = getEditableVertices(selEntity, camState, viewMode, size.width.toFloat(), size.height.toFloat())
                         val clicked = vertices.find { ev ->
                             val dist = kotlin.math.sqrt((offset.x - ev.screenPos.x) * (offset.x - ev.screenPos.x) + (offset.y - ev.screenPos.y) * (offset.y - ev.screenPos.y))
                             dist < 45f
                         }
                         if (clicked != null) {
-                            onVertexClick(clicked.index, selectedEntity)
+                            onVertexClick(clicked.index, selEntity)
                             return@detectTapGestures
                         }
                     }
@@ -3005,15 +3346,15 @@ fun Solid3DWorkspace(
                     val hit = CadRenderer.hitTestEntity(
                         tapX = offset.x,
                         tapY = offset.y,
-                        entities = entities,
-                        camera = cameraState,
+                        entities = ents,
+                        camera = camState,
                         viewMode = viewMode,
                         screenWidth = size.width.toFloat(),
                         screenHeight = size.height.toFloat()
                     )
                     viewModel.selectEntity(hit?.id)
                     if (hit != null) {
-                        val vertices = getEditableVertices(hit, cameraState, viewMode, size.width.toFloat(), size.height.toFloat())
+                        val vertices = getEditableVertices(hit, camState, viewMode, size.width.toFloat(), size.height.toFloat())
                         if (vertices.isNotEmpty()) {
                             val closest = vertices.minByOrNull { ev ->
                                 val dx = offset.x - ev.screenPos.x
@@ -3038,6 +3379,57 @@ fun Solid3DWorkspace(
             showGrid = showGrid,
             gridPlane = gridPlane
         )
+
+        // Draw 3D spatial reference image projection wireframes
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        referenceImages.filter { it.isVisible }.forEach { img ->
+            val iw = 300f * img.scale
+            val ih = 300f * img.scale
+            val corners = when (img.plane) {
+                "TOP" -> listOf(
+                    Point3D(img.x - iw/2, img.y - ih/2, img.z),
+                    Point3D(img.x + iw/2, img.y - ih/2, img.z),
+                    Point3D(img.x + iw/2, img.y + ih/2, img.z),
+                    Point3D(img.x - iw/2, img.y + ih/2, img.z)
+                )
+                "FRONT" -> listOf(
+                    Point3D(img.x - iw/2, img.y, img.z - ih/2),
+                    Point3D(img.x + iw/2, img.y, img.z - ih/2),
+                    Point3D(img.x + iw/2, img.y, img.z + ih/2),
+                    Point3D(img.x - iw/2, img.y, img.z + ih/2)
+                )
+                "RIGHT" -> listOf(
+                    Point3D(img.x, img.y - iw/2, img.z - ih/2),
+                    Point3D(img.x, img.y + iw/2, img.z - ih/2),
+                    Point3D(img.x, img.y + iw/2, img.z + ih/2),
+                    Point3D(img.x, img.y - iw/2, img.z + ih/2)
+                )
+                else -> emptyList()
+            }
+            if (corners.isNotEmpty()) {
+                val screenPts = corners.map { p ->
+                    CadRenderer.projectPoint(p, cameraState, viewMode, cx, cy)
+                }
+                val path = Path().apply {
+                    moveTo(screenPts[0].x, screenPts[0].y)
+                    lineTo(screenPts[1].x, screenPts[1].y)
+                    lineTo(screenPts[2].x, screenPts[2].y)
+                    lineTo(screenPts[3].x, screenPts[3].y)
+                    close()
+                }
+                drawPath(path = path, color = Color(0x2000E5FF))
+                drawPath(path = path, color = Color(0xFF00E5FF).copy(alpha = img.opacity), style = Stroke(width = 2f))
+                
+                val labelPos = screenPts[0]
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = "Tracer [${img.plane}]: ${img.name}",
+                    topLeft = Offset(labelPos.x + 8f, labelPos.y + 8f),
+                    style = TextStyle(color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                )
+            }
+        }
 
         // Draw all 3D solid elements with Painter overlap and dynamic shading
         CadRenderer.renderEntities(
@@ -3282,19 +3674,28 @@ fun Blueprint2DCanvas(
     }
 
     val showGrid by viewModel.showGrid.collectAsStateWithLifecycle()
+    val referenceImages by viewModel.referenceImages.collectAsStateWithLifecycle()
+    val refBitmaps = rememberReferenceImagesBitmaps(referenceImages)
+
+    // Key Gesture performance optimization fields (avoids re-creating pointerInput on every micro-drag frame)
+    val currentCameraState by rememberUpdatedState(cameraState)
+    val currentSelectedEntity by rememberUpdatedState(selectedEntity)
+    val currentEntities by rememberUpdatedState(entities)
 
     Canvas(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0F1524)) // Dark AutoCAD grid background style
-            .pointerInput(selectedEntity, cameraState, current2DPlane) {
+            .pointerInput(current2DPlane) {
                 detectDragGestures(
                     onDragStart = { startOffset ->
                         viewModel.recordHistoryState()
                         dragStartOffset = startOffset
-                        if (selectedEntity != null) {
+                        val selEntity = currentSelectedEntity
+                        val camState = currentCameraState
+                        if (selEntity != null) {
                             // Check if click is near an editable vertex
-                            val vertices = getEditableVertices2D(selectedEntity, cameraState, current2DPlane, size.width.toFloat(), size.height.toFloat())
+                            val vertices = getEditableVertices2D(selEntity, camState, current2DPlane, size.width.toFloat(), size.height.toFloat())
                             val clicked = vertices.find { ev ->
                                 val dist = kotlin.math.sqrt((startOffset.x - ev.screenPos.x) * (startOffset.x - ev.screenPos.x) + (startOffset.y - ev.screenPos.y) * (startOffset.y - ev.screenPos.y))
                                 dist < 45f
@@ -3306,29 +3707,29 @@ fun Blueprint2DCanvas(
                                 draggedVertexIndex = -1
                                 // Else, fallback to regular center-dragging of entire shape
                                 val wx = when (current2DPlane) {
-                                    ViewportMode.TOP -> selectedEntity.x
-                                    ViewportMode.FRONT -> selectedEntity.x
-                                    ViewportMode.RIGHT -> selectedEntity.y
-                                    else -> selectedEntity.x
+                                    ViewportMode.TOP -> selEntity.x
+                                    ViewportMode.FRONT -> selEntity.x
+                                    ViewportMode.RIGHT -> selEntity.y
+                                    else -> selEntity.x
                                 }
                                 val wy = when (current2DPlane) {
-                                    ViewportMode.TOP -> selectedEntity.y
-                                    ViewportMode.FRONT -> selectedEntity.z
-                                    ViewportMode.RIGHT -> selectedEntity.z
-                                    else -> selectedEntity.y
+                                    ViewportMode.TOP -> selEntity.y
+                                    ViewportMode.FRONT -> selEntity.z
+                                    ViewportMode.RIGHT -> selEntity.z
+                                    else -> selEntity.y
                                 }
                                 val centerX = size.width / 2f
                                 val centerY = size.height / 2f
-                                val zoom = cameraState.zoom * 1.5f
-                                val panX = cameraState.panX
-                                val panY = cameraState.panY
+                                val zoom = camState.zoom * 1.5f
+                                val panX = camState.panX
+                                val panY = camState.panY
                                 val screenPos = Offset(
                                     centerX + panX + (wx * zoom),
                                     centerY + panY - (wy * zoom)
                                 )
                                 val distToCenter = kotlin.math.sqrt((startOffset.x - screenPos.x) * (startOffset.x - screenPos.x) + (startOffset.y - screenPos.y) * (startOffset.y - screenPos.y))
                                 if (distToCenter < 100f) {
-                                    selectedEntityDragOffsetStart = Point3D(selectedEntity.x, selectedEntity.y, selectedEntity.z)
+                                    selectedEntityDragOffsetStart = Point3D(selEntity.x, selEntity.y, selEntity.z)
                                 } else {
                                     selectedEntityDragOffsetStart = null
                                 }
@@ -3340,15 +3741,17 @@ fun Blueprint2DCanvas(
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
-                        val zoom = cameraState.zoom * 1.5f
-                        if (draggedVertexIndex != -1 && selectedEntity != null) {
+                        val camState = currentCameraState
+                        val selEntity = currentSelectedEntity
+                        val zoom = camState.zoom * 1.5f
+                        if (draggedVertexIndex != -1 && selEntity != null) {
                             val dxWorld = dragAmount.x / zoom
                             val dyWorld = -dragAmount.y / zoom
 
                             // Transform local rotation back
-                            val rx_rad = Math.toRadians(selectedEntity.rx.toDouble()).toFloat()
-                            val ry_rad = Math.toRadians(selectedEntity.ry.toDouble()).toFloat()
-                            val rz_rad = Math.toRadians(selectedEntity.rz.toDouble()).toFloat()
+                            val rx_rad = Math.toRadians(selEntity.rx.toDouble()).toFloat()
+                            val ry_rad = Math.toRadians(selEntity.ry.toDouble()).toFloat()
+                            val rz_rad = Math.toRadians(selEntity.rz.toDouble()).toFloat()
 
                             // 2D plane displacement as world spatial displacement
                             val d_world = when (current2DPlane) {
@@ -3362,16 +3765,16 @@ fun Blueprint2DCanvas(
                             d_local = MathUtils.rotateY(d_local, -ry_rad)
                             d_local = MathUtils.rotateX(d_local, -rx_rad)
 
-                            when (selectedEntity.type) {
+                            when (selEntity.type) {
                                 EntityType.POLYLINE -> {
-                                    val currentPts = selectedEntity.polylinePoints ?: emptyList()
+                                    val currentPts = selEntity.polylinePoints ?: emptyList()
                                     if (draggedVertexIndex < currentPts.size) {
                                         val currPt = currentPts[draggedVertexIndex]
                                         viewModel.updatePolylinePoint(draggedVertexIndex, currPt.x + d_local.x, currPt.y + d_local.y, currPt.z + d_local.z, saveToHistory = false)
                                     }
                                 }
                                 EntityType.EXTRUSION -> {
-                                    val profile = if (selectedEntity.extrusionProfile != null && selectedEntity.extrusionProfile.isNotEmpty()) selectedEntity.extrusionProfile else CadDefaults.ProfileHexagon
+                                    val profile = if (selEntity.extrusionProfile != null && selEntity.extrusionProfile.isNotEmpty()) selEntity.extrusionProfile else CadDefaults.ProfileHexagon
                                     val numPoints = profile.size
                                     val profileIndex = draggedVertexIndex % numPoints
                                     if (profileIndex < profile.size) {
@@ -3380,34 +3783,34 @@ fun Blueprint2DCanvas(
                                     }
                                 }
                                 else -> {
-                                    val offsets = selectedEntity.vertexOffsets ?: emptyList()
+                                    val offsets = selEntity.vertexOffsets ?: emptyList()
                                     val currOffset = if (draggedVertexIndex < offsets.size) offsets[draggedVertexIndex] else Point3D(0f, 0f, 0f)
                                     viewModel.updateVertexOffset(draggedVertexIndex, currOffset.x + d_local.x, currOffset.y + d_local.y, currOffset.z + d_local.z, saveToHistory = false)
                                 }
                             }
-                        } else if (selectedEntityDragOffsetStart != null && selectedEntity != null) {
+                        } else if (selectedEntityDragOffsetStart != null && selEntity != null) {
                             val dxWorld = dragAmount.x / zoom
                             val dyWorld = -dragAmount.y / zoom // Standard Y inversion
 
                             when (current2DPlane) {
                                 ViewportMode.TOP -> {
                                     viewModel.updateSelectedProperties(
-                                        x = selectedEntity.x + dxWorld,
-                                        y = selectedEntity.y + dyWorld,
+                                        x = selEntity.x + dxWorld,
+                                        y = selEntity.y + dyWorld,
                                         saveToHistory = false
                                     )
                                 }
                                 ViewportMode.FRONT -> {
                                     viewModel.updateSelectedProperties(
-                                        x = selectedEntity.x + dxWorld,
-                                        z = selectedEntity.z + dyWorld,
+                                        x = selEntity.x + dxWorld,
+                                        z = selEntity.z + dyWorld,
                                         saveToHistory = false
                                     )
                                 }
                                 ViewportMode.RIGHT -> {
                                     viewModel.updateSelectedProperties(
-                                        y = selectedEntity.y + dxWorld,
-                                        z = selectedEntity.z + dyWorld,
+                                        y = selEntity.y + dxWorld,
+                                        z = selEntity.z + dyWorld,
                                         saveToHistory = false
                                     )
                                 }
@@ -3425,30 +3828,33 @@ fun Blueprint2DCanvas(
                     }
                 )
             }
-            .pointerInput(selectedEntity, cameraState, current2DPlane) {
+            .pointerInput(current2DPlane) {
                 detectTapGestures { tapOffset ->
                     val centerX = size.width / 2f
                     val centerY = size.height / 2f
-                    val zoom = cameraState.zoom * 1.5f
-                    val panX = cameraState.panX
-                    val panY = cameraState.panY
+                    val camState = currentCameraState
+                    val zoom = camState.zoom * 1.5f
+                    val panX = camState.panX
+                    val panY = camState.panY
+                    val selEntity = currentSelectedEntity
+                    val ents = currentEntities
 
                     // First, check if clicked on high-priority vertex handle!
-                    if (selectedEntity != null) {
-                        val vertices = getEditableVertices2D(selectedEntity, cameraState, current2DPlane, size.width.toFloat(), size.height.toFloat())
+                    if (selEntity != null) {
+                        val vertices = getEditableVertices2D(selEntity, camState, current2DPlane, size.width.toFloat(), size.height.toFloat())
                         val clicked = vertices.find { ev ->
                             val dist = kotlin.math.sqrt((tapOffset.x - ev.screenPos.x) * (tapOffset.x - ev.screenPos.x) + (tapOffset.y - ev.screenPos.y) * (tapOffset.y - ev.screenPos.y))
                             dist < 45f
                         }
                         if (clicked != null) {
-                            onVertexClick(clicked.index, selectedEntity)
+                            onVertexClick(clicked.index, selEntity)
                             return@detectTapGestures
                         }
                     }
 
                     // Second, check if tapped near any active dimension label
-                    if (selectedEntity != null) {
-                        val dims = getBlueprintDims(selectedEntity, centerX, centerY, zoom, panX, panY, current2DPlane)
+                    if (selEntity != null) {
+                        val dims = getBlueprintDims(selEntity, centerX, centerY, zoom, panX, panY, current2DPlane)
                         val clickedDim = dims.find { dim ->
                             val dx = tapOffset.x - dim.labelPos.x
                             val dy = tapOffset.y - dim.labelPos.y
@@ -3464,7 +3870,7 @@ fun Blueprint2DCanvas(
                     var nearestEntity: CadEntity? = null
                     var minDistance = Float.MAX_VALUE
 
-                    entities.filter { it.isVisible }.forEach { entity ->
+                    ents.filter { it.isVisible }.forEach { entity ->
                          val wx = when (current2DPlane) {
                              ViewportMode.TOP -> entity.x
                              ViewportMode.FRONT -> entity.x
@@ -3520,7 +3926,7 @@ fun Blueprint2DCanvas(
 
                     if (minDistance < 60f && nearestEntity != null) {
                         viewModel.selectEntity(nearestEntity.id)
-                        val vertices = getEditableVertices2D(nearestEntity, cameraState, current2DPlane, size.width.toFloat(), size.height.toFloat())
+                        val vertices = getEditableVertices2D(nearestEntity, camState, current2DPlane, size.width.toFloat(), size.height.toFloat())
                         if (vertices.isNotEmpty()) {
                             val closest = vertices.minByOrNull { ev ->
                                 val dx = tapOffset.x - ev.screenPos.x
@@ -3594,6 +4000,33 @@ fun Blueprint2DCanvas(
             radius = 5f,
             center = originScreenPos
         )
+
+        // 1.5 Draw 2D Orthogonal Reference Trace Images
+        referenceImages.filter { it.isVisible && it.plane == current2DPlane.name }.forEach { img ->
+            val bitmap = refBitmaps[img.id]
+            if (bitmap != null) {
+                val iw = bitmap.width.toFloat()
+                val ih = bitmap.height.toFloat()
+                val maxDim = maxOf(iw, ih)
+                
+                // Keep image sized in world coordinates around center
+                val worldW = (iw / maxDim) * 300f * img.scale
+                val worldH = (ih / maxDim) * 300f * img.scale
+
+                val screenW = worldW * zoom
+                val screenH = worldH * zoom
+
+                val screenX = centerX + panX + (img.x * zoom) - (screenW / 2)
+                val screenY = centerY + panY - (img.y * zoom) - (screenH / 2)
+
+                drawImage(
+                    image = bitmap,
+                    dstOffset = IntOffset(screenX.toInt(), screenY.toInt()),
+                    dstSize = IntSize(screenW.toInt(), screenH.toInt()),
+                    alpha = img.opacity
+                )
+            }
+        }
 
         // 2. Render 2D Draft Outlines for visible elements
         entities.filter { it.isVisible }.forEach { entity ->
