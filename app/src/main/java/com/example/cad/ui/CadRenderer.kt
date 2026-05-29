@@ -124,7 +124,8 @@ object CadRenderer {
         camera: ViewportState,
         viewMode: ViewportMode,
         gridSize: Float,
-        showGrid: Boolean
+        showGrid: Boolean,
+        gridPlane: String = "XY"
     ) {
         val cx = drawScope.size.width / 2f
         val cy = drawScope.size.height / 2f
@@ -134,27 +135,76 @@ object CadRenderer {
             val step = gridSize
             val range = 400f
 
-            // Draw XY Ground Grid
-            var xVal = -range
-            while (xVal <= range) {
-                val p1 = projectPoint(Point3D(xVal, -range, 0f), camera, viewMode, cx, cy)
-                val p2 = projectPoint(Point3D(xVal, range, 0f), camera, viewMode, cx, cy)
-                drawScope.drawLine(
-                    color = gridColor,
-                    start = androidx.compose.ui.geometry.Offset(p1.x, p1.y),
-                    end = androidx.compose.ui.geometry.Offset(p2.x, p2.y),
-                    strokeWidth = 1f
-                )
+            when (gridPlane) {
+                "XZ" -> {
+                    var xVal = -range
+                    while (xVal <= range) {
+                        val p1 = projectPoint(Point3D(xVal, 0f, -range), camera, viewMode, cx, cy)
+                        val p2 = projectPoint(Point3D(xVal, 0f, range), camera, viewMode, cx, cy)
+                        drawScope.drawLine(
+                            color = gridColor,
+                            start = androidx.compose.ui.geometry.Offset(p1.x, p1.y),
+                            end = androidx.compose.ui.geometry.Offset(p2.x, p2.y),
+                            strokeWidth = 1f
+                        )
 
-                val p3 = projectPoint(Point3D(-range, xVal, 0f), camera, viewMode, cx, cy)
-                val p4 = projectPoint(Point3D(range, xVal, 0f), camera, viewMode, cx, cy)
-                drawScope.drawLine(
-                    color = gridColor,
-                    start = androidx.compose.ui.geometry.Offset(p3.x, p3.y),
-                    end = androidx.compose.ui.geometry.Offset(p4.x, p4.y),
-                    strokeWidth = 1f
-                )
-                xVal += step
+                        val p3 = projectPoint(Point3D(-range, 0f, xVal), camera, viewMode, cx, cy)
+                        val p4 = projectPoint(Point3D(range, 0f, xVal), camera, viewMode, cx, cy)
+                        drawScope.drawLine(
+                            color = gridColor,
+                            start = androidx.compose.ui.geometry.Offset(p3.x, p3.y),
+                            end = androidx.compose.ui.geometry.Offset(p4.x, p4.y),
+                            strokeWidth = 1f
+                        )
+                        xVal += step
+                    }
+                }
+                "YZ" -> {
+                    var yVal = -range
+                    while (yVal <= range) {
+                        val p1 = projectPoint(Point3D(0f, yVal, -range), camera, viewMode, cx, cy)
+                        val p2 = projectPoint(Point3D(0f, yVal, range), camera, viewMode, cx, cy)
+                        drawScope.drawLine(
+                            color = gridColor,
+                            start = androidx.compose.ui.geometry.Offset(p1.x, p1.y),
+                            end = androidx.compose.ui.geometry.Offset(p2.x, p2.y),
+                            strokeWidth = 1f
+                        )
+
+                        val p3 = projectPoint(Point3D(0f, -range, yVal), camera, viewMode, cx, cy)
+                        val p4 = projectPoint(Point3D(0f, range, yVal), camera, viewMode, cx, cy)
+                        drawScope.drawLine(
+                            color = gridColor,
+                            start = androidx.compose.ui.geometry.Offset(p3.x, p3.y),
+                            end = androidx.compose.ui.geometry.Offset(p4.x, p4.y),
+                            strokeWidth = 1f
+                        )
+                        yVal += step
+                    }
+                }
+                else -> { // Default XY
+                    var xVal = -range
+                    while (xVal <= range) {
+                        val p1 = projectPoint(Point3D(xVal, -range, 0f), camera, viewMode, cx, cy)
+                        val p2 = projectPoint(Point3D(xVal, range, 0f), camera, viewMode, cx, cy)
+                        drawScope.drawLine(
+                            color = gridColor,
+                            start = androidx.compose.ui.geometry.Offset(p1.x, p1.y),
+                            end = androidx.compose.ui.geometry.Offset(p2.x, p2.y),
+                            strokeWidth = 1f
+                        )
+
+                        val p3 = projectPoint(Point3D(-range, xVal, 0f), camera, viewMode, cx, cy)
+                        val p4 = projectPoint(Point3D(range, xVal, 0f), camera, viewMode, cx, cy)
+                        drawScope.drawLine(
+                            color = gridColor,
+                            start = androidx.compose.ui.geometry.Offset(p3.x, p3.y),
+                            end = androidx.compose.ui.geometry.Offset(p4.x, p4.y),
+                            strokeWidth = 1f
+                        )
+                        xVal += step
+                    }
+                }
             }
         }
 

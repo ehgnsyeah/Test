@@ -6,7 +6,7 @@ import com.example.cad.math.MathUtils
 import java.util.UUID
 
 enum class EntityType {
-    BOX, CYLINDER, SPHERE, CONE, POLYLINE, EXTRUSION
+    BOX, CYLINDER, SPHERE, CONE, POLYLINE, EXTRUSION, COMBINED
 }
 
 data class CadEntity(
@@ -34,7 +34,12 @@ data class CadEntity(
     // Polyline points in local space
     val polylinePoints: List<Point3D> = emptyList(),
     // Custom extrusion 2D profile base points (local scale coordinates)
-    val extrusionProfile: List<Point2D> = emptyList()
+    val extrusionProfile: List<Point2D> = emptyList(),
+    // Custom vertex offset displacement coordinates
+    val vertexOffsets: List<Point3D> = emptyList(),
+    // Merged coordinate lists for COMBINED / Splitted shapes
+    val mergedVertices: List<Point3D> = emptyList(),
+    val mergedFaces: List<List<Int>> = emptyList()
 )
 
 data class CadLayer(
@@ -122,11 +127,23 @@ fun exportToObj(entities: List<CadEntity>, layers: List<CadLayer>): String {
  */
 data class FaceIndices(val indices: List<Int>)
 
+private val geometryCache = java.util.concurrent.ConcurrentHashMap<CadEntity, Pair<List<Point3D>, List<List<Int>>>>()
+
 /**
  * Generate vertices and faces for a CadEntity in World coordinates.
  * Returns Pair of computed word points and list of faces representing point indexes.
+ * Cached to achieve high-performance real-time 3D and 2D rendering.
  */
 fun generateEntityGeometry(entity: CadEntity): Pair<List<Point3D>, List<List<Int>>> {
+    if (geometryCache.size > 1000) {
+        geometryCache.clear()
+    }
+    return geometryCache.computeIfAbsent(entity) {
+        generateEntityGeometryImpl(it)
+    }
+}
+
+fun generateEntityGeometryImpl(entity: CadEntity): Pair<List<Point3D>, List<List<Int>>> {
     val localVertices = mutableListOf<Point3D>()
     val faces = mutableListOf<List<Int>>()
 
@@ -280,10 +297,11 @@ fun generateEntityGeometry(entity: CadEntity): Pair<List<Point3D>, List<List<Int
             // expects face polygons, let's represent the vertices and add sequential lines.
             // To make sure faces list is valid, we can generate a simple vertex loop or box for each segment,
             // or return individual points. Let's return the points directly.
-            if (entity.polylinePoints.isNotEmpty()) {
-                localVertices.addAll(entity.polylinePoints)
+            val polyPts = entity.polylinePoints ?: emptyList()
+            if (polyPts.isNotEmpty()) {
+                localVertices.addAll(polyPts)
                 // Add linear connections as face indexes
-                for (i in 0 until entity.polylinePoints.size - 1) {
+                for (i in 0 until polyPts.size - 1) {
                     faces.add(listOf(i, i + 1, i + 1, i)) // Duplicated to draw a line quad
                 }
             } else {
@@ -291,9 +309,13 @@ fun generateEntityGeometry(entity: CadEntity): Pair<List<Point3D>, List<List<Int
                 localVertices.add(Point3D(0f, 0f, 0f))
             }
         }
+        EntityType.COMBINED -> {
+            localVertices.addAll(entity.mergedVertices)
+            faces.addAll(entity.mergedFaces)
+        }
         EntityType.EXTRUSION -> {
             // Extrudes a 2D profile along Z by height
-            val profile = if (entity.extrusionProfile.isNotEmpty()) {
+            val profile = if (entity.extrusionProfile != null && entity.extrusionProfile.isNotEmpty()) {
                 entity.extrusionProfile
             } else {
                 CadDefaults.ProfileHexagon
@@ -341,6 +363,18 @@ fun generateEntityGeometry(entity: CadEntity): Pair<List<Point3D>, List<List<Int
             for (i in 0 until numPoints) {
                 val next = (i + 1) % numPoints
                 faces.add(listOf(next, i, botCent))
+            }
+        }
+    }
+
+    // Apply local vertex custom offsets if specified
+    val offsets = entity.vertexOffsets ?: emptyList()
+    if (offsets.isNotEmpty()) {
+        for (idx in 0 until localVertices.size) {
+            if (idx < offsets.size) {
+                val offset = offsets[idx]
+                val pt = localVertices[idx]
+                localVertices[idx] = Point3D(pt.x + offset.x, pt.y + offset.y, pt.z + offset.z)
             }
         }
     }

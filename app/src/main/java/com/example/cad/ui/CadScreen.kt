@@ -72,6 +72,8 @@ fun CadScreen(
     var showPresetProfilesDialog by remember { mutableStateOf(false) }
     var saveProjectNameInput by remember { mutableStateOf("") }
     var showLayersPanel by remember { mutableStateOf(false) }
+    var showMeasurementPanel by remember { mutableStateOf(true) }
+    var showGridPanel by remember { mutableStateOf(false) }
 
     // AutoCAD 2D/3D Workspace state
     var workspaceLayout by remember { mutableStateOf("SPLIT") } // "3D", "2D", "SPLIT"
@@ -79,6 +81,40 @@ fun CadScreen(
     var showDimEditDialog by remember { mutableStateOf(false) }
     var editingDim by remember { mutableStateOf<BlueprintDim?>(null) }
     var editValueInput by remember { mutableStateOf("") }
+
+    // Direct Vertex coordinates editing states
+    var activeVertexEditIndex by remember { mutableStateOf(-1) }
+    var activeVertexEditEntityId by remember { mutableStateOf<String?>(null) }
+    var vertexEditXInput by remember { mutableStateOf("") }
+    var vertexEditYInput by remember { mutableStateOf("") }
+    var vertexEditZInput by remember { mutableStateOf("") }
+
+    val onVertexClick: (Int, CadEntity) -> Unit = { idx, entity ->
+        activeVertexEditIndex = idx
+        activeVertexEditEntityId = entity.id
+        when (entity.type) {
+            EntityType.POLYLINE -> {
+                val pt = if (entity.polylinePoints != null && idx < entity.polylinePoints.size) entity.polylinePoints[idx] else Point3D(0f, 0f, 0f)
+                vertexEditXInput = pt.x.toString()
+                vertexEditYInput = pt.y.toString()
+                vertexEditZInput = pt.z.toString()
+            }
+            EntityType.EXTRUSION -> {
+                val profile = if (entity.extrusionProfile != null && entity.extrusionProfile.isNotEmpty()) entity.extrusionProfile else CadDefaults.ProfileHexagon
+                val pt = if (idx < profile.size) profile[idx] else Point2D(0f, 0f)
+                vertexEditXInput = pt.x.toString()
+                vertexEditYInput = pt.y.toString()
+                vertexEditZInput = ""
+            }
+            else -> {
+                val offsets = entity.vertexOffsets ?: emptyList()
+                val offset = if (idx < offsets.size) offsets[idx] else Point3D(0f, 0f, 0f)
+                vertexEditXInput = offset.x.toString()
+                vertexEditYInput = offset.y.toString()
+                vertexEditZInput = offset.z.toString()
+            }
+        }
+    }
 
     // Canvas Touch Mode: Orbit vs Pan
     var dragControlMode by remember { mutableStateOf("ORBIT") } // "ORBIT" or "PAN"
@@ -138,6 +174,26 @@ fun CadScreen(
                             contentDescription = "레이어 설정",
                             tint = if (showLayersPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.testTag("btn_layers_toggle")
+                        )
+                    }
+
+                    // Measurement Toggler
+                    IconButton(onClick = { showMeasurementPanel = !showMeasurementPanel }) {
+                        Icon(
+                            Icons.Default.SquareFoot,
+                            contentDescription = "치수 측정 창 토글",
+                            tint = if (showMeasurementPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("btn_measurement_toggle")
+                        )
+                    }
+
+                    // Grid Settings Toggler
+                    IconButton(onClick = { showGridPanel = !showGridPanel }) {
+                        Icon(
+                            Icons.Default.GridView,
+                            contentDescription = "그리드 설정",
+                            tint = if (showGridPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.testTag("btn_grid_toggle")
                         )
                     }
 
@@ -226,6 +282,7 @@ fun CadScreen(
                                 gridSize = gridSize,
                                 dragControlMode = dragControlMode,
                                 viewModel = viewModel,
+                                onVertexClick = onVertexClick,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -241,6 +298,7 @@ fun CadScreen(
                                     editValueInput = dim.value.toInt().toString()
                                     showDimEditDialog = true
                                 },
+                                onVertexClick = onVertexClick,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -256,6 +314,7 @@ fun CadScreen(
                                         gridSize = gridSize,
                                         dragControlMode = dragControlMode,
                                         viewModel = viewModel,
+                                        onVertexClick = onVertexClick,
                                         modifier = Modifier.weight(1f).fillMaxHeight()
                                     )
                                     Box(
@@ -275,6 +334,7 @@ fun CadScreen(
                                             editValueInput = dim.value.toInt().toString()
                                             showDimEditDialog = true
                                         },
+                                        onVertexClick = onVertexClick,
                                         modifier = Modifier.weight(1f).fillMaxHeight()
                                     )
                                 }
@@ -288,6 +348,7 @@ fun CadScreen(
                                         gridSize = gridSize,
                                         dragControlMode = dragControlMode,
                                         viewModel = viewModel,
+                                        onVertexClick = onVertexClick,
                                         modifier = Modifier.weight(1f).fillMaxWidth()
                                     )
                                     Box(
@@ -307,6 +368,7 @@ fun CadScreen(
                                             editValueInput = dim.value.toInt().toString()
                                             showDimEditDialog = true
                                         },
+                                        onVertexClick = onVertexClick,
                                         modifier = Modifier.weight(1f).fillMaxWidth()
                                     )
                                 }
@@ -494,7 +556,8 @@ fun CadScreen(
                 }
 
                 // Measurement and snapping state HUD (Top-Left inside canvas)
-                Column(
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showMeasurementPanel,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(12.dp)
@@ -503,22 +566,40 @@ fun CadScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                         ),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.width(180.dp)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.SquareFoot,
-                                    contentDescription = "치수",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = "정밀 치수 및 측정",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.SquareFoot,
+                                        contentDescription = "치수",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "정밀 치수 및 측정",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { showMeasurementPanel = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "닫기",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             if (selectedEntity != null) {
@@ -556,7 +637,7 @@ fun CadScreen(
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.width(135.dp)
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("격자 맞춤", fontSize = 11.sp)
                                 Switch(
@@ -566,6 +647,111 @@ fun CadScreen(
                                         .scaleRelative(0.7f)
                                         .testTag("switch_snap")
                                 )
+                            }
+                        }
+                    }
+                }
+
+                // Grid Settings Panel (Animated overlay on the left top)
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showGridPanel,
+                    enter = slideInHorizontally { -it } + fadeIn(),
+                    exit = slideOutHorizontally { -it } + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 12.dp, top = 80.dp)
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .width(220.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.GridView,
+                                        contentDescription = "그리드",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "그리드 켜기/끄기 및 방향",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { showGridPanel = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "닫기",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            val showGridVal by viewModel.showGrid.collectAsStateWithLifecycle()
+                            val gridPlaneVal by viewModel.gridPlane.collectAsStateWithLifecycle()
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("보조 그리드망 표시", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Switch(
+                                    checked = showGridVal,
+                                    onCheckedChange = { viewModel.toggleShowGrid() },
+                                    modifier = Modifier.scaleRelative(0.7f).testTag("switch_show_grid")
+                                )
+                            }
+
+                            if (showGridVal) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("격자면 기준 설정 (3D)", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    listOf("XY", "XZ", "YZ").forEach { plane ->
+                                        val isSelected = gridPlaneVal == plane
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(30.dp)
+                                                .background(
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                    shape = RoundedCornerShape(6.dp)
+                                                )
+                                                .clickable { viewModel.setGridPlane(plane) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = plane,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -661,6 +847,161 @@ fun CadScreen(
                                                 tint = if (layer.isLocked) Color(0xFFFF5252) else Color.Gray
                                             )
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- Floating Overlay 4: Non-blocking Vertex Coordinates Editor (Bottom Left of Canvas) ---
+                val vertexEntity = remember(entities, activeVertexEditEntityId) {
+                    entities.find { it.id == activeVertexEditEntityId }
+                }
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = activeVertexEditIndex >= 0 && vertexEntity != null,
+                    enter = slideInVertically { it } + fadeIn(),
+                    exit = slideOutVertically { it } + fadeOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp)
+                ) {
+                    if (vertexEntity != null) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.width(280.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "수정",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        val isPoly = vertexEntity.type == EntityType.POLYLINE
+                                        val isExtru = vertexEntity.type == EntityType.EXTRUSION
+                                        val tText = if (isPoly) "P$activeVertexEditIndex 꼭짓점 좌표" else if (isExtru) "V$activeVertexEditIndex 프로파일 좌표" else "V$activeVertexEditIndex 미세조정 오프셋"
+                                        Text(
+                                            text = tText,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { activeVertexEditIndex = -1; activeVertexEditEntityId = null },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "닫기",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                val dText = if (vertexEntity.type == EntityType.POLYLINE) {
+                                    "폴리라인 꼭짓점 로컬 3D 좌표 수치 조작"
+                                } else if (vertexEntity.type == EntityType.EXTRUSION) {
+                                    "돌출 단면 2D 꼭짓점 로컬 좌표 수치 조작"
+                                } else {
+                                    "선택한 도형 꼭짓점 번호인 $activeVertexEditIndex 미세 조정 오프셋 dX, dY, dZ 입력"
+                                }
+                                Text(
+                                    text = dText,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = vertexEditXInput,
+                                        onValueChange = { vertexEditXInput = it },
+                                        label = { Text("X (mm)", fontSize = 8.sp) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f).testTag("input_vertex_x"),
+                                        singleLine = true,
+                                        textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
+                                    )
+                                    OutlinedTextField(
+                                        value = vertexEditYInput,
+                                        onValueChange = { vertexEditYInput = it },
+                                        label = { Text("Y (mm)", fontSize = 8.sp) },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f).testTag("input_vertex_y"),
+                                        singleLine = true,
+                                        textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
+                                    )
+                                    if (vertexEntity.type != EntityType.EXTRUSION) {
+                                        OutlinedTextField(
+                                            value = vertexEditZInput,
+                                            onValueChange = { vertexEditZInput = it },
+                                            label = { Text("Z (mm)", fontSize = 8.sp) },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.weight(1f).testTag("input_vertex_z"),
+                                            singleLine = true,
+                                            textStyle = LocalTextStyle.current.copy(fontSize = 11.sp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    TextButton(
+                                        onClick = { activeVertexEditIndex = -1; activeVertexEditEntityId = null },
+                                        modifier = Modifier.height(32.dp)
+                                    ) {
+                                        Text("취소", fontSize = 11.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Button(
+                                        onClick = {
+                                            val xVal = vertexEditXInput.toFloatOrNull() ?: 0f
+                                            val yVal = vertexEditYInput.toFloatOrNull() ?: 0f
+                                            val zVal = vertexEditZInput.toFloatOrNull() ?: 0f
+                                            when (vertexEntity.type) {
+                                                EntityType.POLYLINE -> {
+                                                    viewModel.updatePolylinePoint(activeVertexEditIndex, xVal, yVal, zVal)
+                                                }
+                                                EntityType.EXTRUSION -> {
+                                                    viewModel.updateExtrusionProfilePoint(activeVertexEditIndex, xVal, yVal)
+                                                }
+                                                else -> {
+                                                    viewModel.updateVertexOffset(activeVertexEditIndex, xVal, yVal, zVal)
+                                                }
+                                            }
+                                            activeVertexEditIndex = -1
+                                            activeVertexEditEntityId = null
+                                            Toast.makeText(context, "꼭짓점 수치가 성공적으로 반영되었습니다.", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.height(32.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("적용", fontSize = 11.sp)
                                     }
                                 }
                             }
@@ -948,6 +1289,14 @@ fun CadScreen(
                                             modifier = Modifier.padding(vertical = 4.dp)
                                         )
                                     }
+                                    EntityType.COMBINED -> {
+                                        Text(
+                                            text = "복잡하게 결합 및 분할된 기하 3D 메쉬입니다. 위치(X, Y, Z) 및 회전각을 그대로 조절할 수 있습니다.",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                    }
                                 }
 
                                 Spacer(modifier = Modifier.height(10.dp))
@@ -1038,6 +1387,226 @@ fun CadScreen(
                                                 onClick = { viewModel.updateSelectedProperties(layerId = layer.id) },
                                                 label = { Text(layer.name, fontSize = 10.sp) }
                                             )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // NEW: Vertex-specific fine tuning control panel
+                                VertexControlPanel(
+                                    entity = selectedEntity,
+                                    viewModel = viewModel,
+                                    selectedVertexIndex = if (activeVertexEditIndex >= 0) activeVertexEditIndex else 0,
+                                    onVertexIndexChange = { idx ->
+                                        onVertexClick(idx, selectedEntity)
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // NEW: Connect & Split Panel (도형 결합 및 분할 가공 Panel)
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "도형 결합 및 분할 가공",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+
+                                        Spacer(modifier = Modifier.height(8.dp))
+
+                                        // Part 1: CONNECT/JOIN (도형 결합)
+                                        Text(
+                                            text = "1. 다른 도형과 결합 (Connect & Merge)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        val otherEntities = entities.filter { it.id != selectedEntity.id && it.isVisible }
+                                        if (otherEntities.isEmpty()) {
+                                            Text(
+                                                text = "결합할 수 있는 다른 활성 도형이 없습니다.",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray,
+                                                modifier = Modifier.padding(vertical = 4.dp)
+                                            )
+                                        } else {
+                                            var mergeTargetId by remember(selectedEntity.id) { 
+                                                mutableStateOf(otherEntities.firstOrNull()?.id ?: "") 
+                                            }
+                                            
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Dropdown selection box
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(4.dp))
+                                                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(4.dp))
+                                                        .clickable {
+                                                            val currIndex = otherEntities.indexOfFirst { it.id == mergeTargetId }
+                                                            val nextIndex = (currIndex + 1) % otherEntities.size
+                                                            mergeTargetId = otherEntities[nextIndex].id
+                                                        }
+                                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                                ) {
+                                                    val selectedName = otherEntities.find { it.id == mergeTargetId }?.name ?: "선택 없음"
+                                                    Text(text = selectedName, fontSize = 11.sp, maxLines = 1)
+                                                }
+
+                                                Button(
+                                                    onClick = { 
+                                                        if (mergeTargetId.isNotEmpty()) {
+                                                            viewModel.mergeEntities(selectedEntity.id, mergeTargetId)
+                                                        }
+                                                    },
+                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                                    modifier = Modifier.height(32.dp).testTag("btn_merge_entities")
+                                                ) {
+                                                    Text("결합", fontSize = 11.sp)
+                                                }
+                                            }
+                                            Text(
+                                                text = "* 다른 요소를 탭하여 순차적으로 선택하거나 순환 탭하여 병합할 대상을 고르세요.",
+                                                fontSize = 9.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+
+                                        Divider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                                        // Part 2: SPLIT/SLICE BY PLANE (단면 분할)
+                                        Text(
+                                            text = "2. 실시간 가상 물리 평면 분할 (Slice & Split)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        // Collect states
+                                        val showSplitPreviewVal by viewModel.showSplittingPreview.collectAsStateWithLifecycle()
+                                        val sliceNormalVal by viewModel.slicePlaneNormal.collectAsStateWithLifecycle()
+                                        val slicePosVal by viewModel.slicePlanePos.collectAsStateWithLifecycle()
+
+                                        // Show visual preview switch toggler
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("가상 분할선 가이드 활성화 (Preview)", fontSize = 10.sp)
+                                            Switch(
+                                                checked = showSplitPreviewVal,
+                                                onCheckedChange = { viewModel.toggleSplittingPreview() },
+                                                modifier = Modifier.testTag("switch_splitting_preview")
+                                            )
+                                        }
+
+                                        if (showSplitPreviewVal) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text("가공 방향 (Normal Plane Axis):", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                listOf("X", "Y", "Z").forEach { axis ->
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(if (sliceNormalVal == axis) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer)
+                                                            .clickable { viewModel.setSlicePlaneNormal(axis) }
+                                                            .padding(vertical = 6.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            text = axis + "축 수직",
+                                                            color = if (sliceNormalVal == axis) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer,
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            // Slider position offset manipulator
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text("위치 절단선:", fontSize = 10.sp, modifier = Modifier.width(65.dp))
+                                                Slider(
+                                                    value = slicePosVal,
+                                                    onValueChange = { viewModel.setSlicePlanePos(it) },
+                                                    valueRange = -100f..100f,
+                                                    modifier = Modifier.weight(1f).testTag("slider_slice_pos")
+                                                )
+                                                Text(
+                                                    text = String.format("%.0f", slicePosVal),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.width(30.dp),
+                                                    textAlign = TextAlign.End
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            Button(
+                                                onClick = { viewModel.splitEntityWithPlane(selectedEntity.id) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5722)), // High-contrast orange for action commit
+                                                modifier = Modifier.fillMaxWidth().height(36.dp).testTag("btn_split_solid")
+                                            ) {
+                                                Icon(Icons.Default.ContentCut, contentDescription = "분할", modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("평면 분할 실행 (Split!)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "위 가이드를 켜시면, 실시간 컷팅 평면과 표면에 생성될 추가 꼭짓점 및 분할 선분이 연두색으로 3D 뷰포트에 렌더링됩니다.",
+                                                fontSize = 9.sp,
+                                                color = Color.Gray,
+                                                modifier = Modifier.padding(vertical = 4.dp)
+                                            )
+                                        }
+
+                                        // If polyline, add selected vertex-based split options
+                                        if (selectedEntity.type == EntityType.POLYLINE && activeVertexEditIndex >= 0) {
+                                            Divider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                                            
+                                            Text(
+                                                text = "3. 선택 배선 꼭짓점 기준 분할",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            
+                                            Button(
+                                                onClick = { viewModel.splitPolylineAtVertex(selectedEntity.id, activeVertexEditIndex) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                                                modifier = Modifier.fillMaxWidth().height(36.dp).testTag("btn_split_polyline_vertex")
+                                            ) {
+                                                Text("선택 점(Index: $activeVertexEditIndex) 기준으로 배선 끊기/분할", fontSize = 10.sp)
+                                            }
                                         }
                                     }
                                 }
@@ -1451,6 +2020,8 @@ fun CadScreen(
             }
         }
     }
+
+
 }
 
 @Composable
@@ -1486,14 +2057,60 @@ fun CoordinateManipulator(
             Text("-1", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         }
 
-        // Display value
-        Text(
-            text = value.toInt().toString(),
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(42.dp)
-        )
+        var showDirectEditDialog by remember { mutableStateOf(false) }
+        var directEditValue by remember { mutableStateOf(value.toString()) }
+
+        if (showDirectEditDialog) {
+            AlertDialog(
+                onDismissRequest = { showDirectEditDialog = false },
+                title = { Text(text = "$label 좌표 직접 입력 (mm)", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                text = {
+                    OutlinedTextField(
+                        value = directEditValue,
+                        onValueChange = { directEditValue = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            directEditValue.toFloatOrNull()?.let { onValueChange(it) }
+                            showDirectEditDialog = false
+                        }
+                    ) {
+                        Text("적용")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDirectEditDialog = false }) {
+                        Text("취소")
+                    }
+                }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .width(42.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable {
+                    directEditValue = value.toString()
+                    showDirectEditDialog = true
+                }
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = value.toInt().toString(),
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         IconButton(
             onClick = { onValueChange(value + 1f) },
@@ -1510,7 +2127,6 @@ fun CoordinateManipulator(
 
         Spacer(modifier = Modifier.width(6.dp))
 
-        // Large slider input range
         Slider(
             value = value,
             onValueChange = onValueChange,
@@ -1547,13 +2163,63 @@ fun DimensionManipulator(
             Text("-5", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         }
 
-        Text(
-            text = value.toInt().toString(),
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(36.dp)
-        )
+        var showDirectEditDialog by remember { mutableStateOf(false) }
+        var directEditValue by remember { mutableStateOf(value.toString()) }
+
+        if (showDirectEditDialog) {
+            AlertDialog(
+                onDismissRequest = { showDirectEditDialog = false },
+                title = { Text(text = "$label 수치 직접 입력 (mm)", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                text = {
+                    OutlinedTextField(
+                        value = directEditValue,
+                        onValueChange = { directEditValue = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            directEditValue.toFloatOrNull()?.let {
+                                val clamped = it.coerceIn(range)
+                                onValueChange(clamped)
+                            }
+                            showDirectEditDialog = false
+                        }
+                    ) {
+                        Text("적용")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDirectEditDialog = false }) {
+                        Text("취소")
+                    }
+                }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .width(36.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable {
+                    directEditValue = value.toString()
+                    showDirectEditDialog = true
+                }
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = value.toInt().toString(),
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         IconButton(
             onClick = { onValueChange((value + 5f).coerceIn(range)) },
@@ -1604,13 +2270,65 @@ fun RotationManipulator(
             Text("-15°", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         }
 
-        Text(
-            text = "${value.toInt()}°",
-            fontSize = 11.sp,
-            textAlign = TextAlign.Center,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(42.dp)
-        )
+        var showDirectEditDialog by remember { mutableStateOf(false) }
+        var directEditValue by remember { mutableStateOf(value.toString()) }
+
+        if (showDirectEditDialog) {
+            AlertDialog(
+                onDismissRequest = { showDirectEditDialog = false },
+                title = { Text(text = "$label 각도 직접 입력 (도)", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+                text = {
+                    OutlinedTextField(
+                        value = directEditValue,
+                        onValueChange = { directEditValue = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            directEditValue.toFloatOrNull()?.let {
+                                var norm = it % 360f
+                                if (norm < -180f) norm += 360f
+                                if (norm > 180f) norm -= 360f
+                                onValueChange(norm)
+                            }
+                            showDirectEditDialog = false
+                        }
+                    ) {
+                        Text("적용")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDirectEditDialog = false }) {
+                        Text("취소")
+                    }
+                }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .width(42.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable {
+                    directEditValue = value.toString()
+                    showDirectEditDialog = true
+                }
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "${value.toInt()}°",
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         IconButton(
             onClick = {
@@ -1634,6 +2352,300 @@ fun RotationManipulator(
     }
 }
 
+@Composable
+fun CoordinateValueManipulator(
+    label: String,
+    value: Float,
+    onValueChange: (Float) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "$label:",
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            modifier = Modifier.width(22.dp),
+            fontFamily = FontFamily.Monospace
+        )
+
+        IconButton(
+            onClick = { onValueChange(value - 5f) },
+            modifier = Modifier.size(24.dp)
+        ) {
+            Text("-5", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+
+        var showDirectEditDialog by remember { mutableStateOf(false) }
+        var directEditValue by remember { mutableStateOf(value.toString()) }
+
+        if (showDirectEditDialog) {
+            AlertDialog(
+                onDismissRequest = { showDirectEditDialog = false },
+                title = { Text(text = "$label 수치 직접 입력", fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+                text = {
+                    OutlinedTextField(
+                        value = directEditValue,
+                        onValueChange = { directEditValue = it },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            directEditValue.toFloatOrNull()?.let { onValueChange(it) }
+                            showDirectEditDialog = false
+                        }
+                    ) {
+                        Text("적용")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDirectEditDialog = false }) {
+                        Text("취소")
+                    }
+                }
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .width(36.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .clickable {
+                    directEditValue = value.toString()
+                    showDirectEditDialog = true
+                }
+                .padding(vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = value.toInt().toString(),
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        IconButton(
+            onClick = { onValueChange(value + 5f) },
+            modifier = Modifier.size(24.dp)
+        ) {
+            Text("+5", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+
+        Spacer(modifier = Modifier.width(4.dp))
+
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = -200f..200f,
+            modifier = Modifier.weight(1f).height(24.dp)
+        )
+    }
+}
+
+@Composable
+fun VertexControlPanel(
+    entity: CadEntity,
+    viewModel: CadViewModel,
+    selectedVertexIndex: Int,
+    onVertexIndexChange: (Int) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Text(
+            text = "★ 꼭짓점 개별 편집 (Vertex Tuning)",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        when (entity.type) {
+            EntityType.POLYLINE -> {
+                val pts = entity.polylinePoints ?: emptyList()
+                if (pts.isEmpty()) {
+                    Text("조절 가능한 꼭짓점이 없습니다.", fontSize = 11.sp, color = Color.Gray)
+                } else {
+                    val activeIndex = if (selectedVertexIndex < pts.size) selectedVertexIndex else 0
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("선택한 꼭짓점: ", fontSize = 11.sp)
+                        ScrollableTabRow(
+                            selectedTabIndex = activeIndex,
+                            edgePadding = 0.dp,
+                            modifier = Modifier.weight(1f).height(36.dp),
+                            divider = {},
+                            indicator = {}
+                        ) {
+                            pts.forEachIndexed { index, _ ->
+                                Tab(
+                                    selected = activeIndex == index,
+                                    onClick = { onVertexIndexChange(index) },
+                                    text = { Text("P$index", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val activePt = pts[activeIndex]
+                    Text("꼭짓점 ${activeIndex} 좌표 (X, Y, Z)", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+
+                    CoordinateValueManipulator(
+                        label = "X",
+                        value = activePt.x,
+                        onValueChange = { viewModel.updatePolylinePoint(activeIndex, it, activePt.y, activePt.z) }
+                    )
+                    CoordinateValueManipulator(
+                        label = "Y",
+                        value = activePt.y,
+                        onValueChange = { viewModel.updatePolylinePoint(activeIndex, activePt.x, it, activePt.z) }
+                    )
+                    CoordinateValueManipulator(
+                        label = "Z",
+                        value = activePt.z,
+                        onValueChange = { viewModel.updatePolylinePoint(activeIndex, activePt.x, activePt.y, it) }
+                    )
+                }
+            }
+            EntityType.EXTRUSION -> {
+                val profile = if (entity.extrusionProfile != null && entity.extrusionProfile.isNotEmpty()) {
+                    entity.extrusionProfile
+                } else {
+                    CadDefaults.ProfileHexagon
+                }
+                if (profile.isEmpty()) {
+                    Text("조절 가능한 프로파일 꼭짓점이 없습니다.", fontSize = 11.sp, color = Color.Gray)
+                } else {
+                    val activeIndex = if (selectedVertexIndex < profile.size) selectedVertexIndex else 0
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("선택한 단면 점: ", fontSize = 11.sp)
+                        ScrollableTabRow(
+                            selectedTabIndex = activeIndex,
+                            edgePadding = 0.dp,
+                            modifier = Modifier.weight(1f).height(36.dp),
+                            divider = {},
+                            indicator = {}
+                        ) {
+                            profile.forEachIndexed { index, _ ->
+                                Tab(
+                                    selected = activeIndex == index,
+                                    onClick = { onVertexIndexChange(index) },
+                                    text = { Text("V$index", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val activePt = profile[activeIndex]
+                    Text("단면 꼭짓점 ${activeIndex} 좌표 (Local X, Y)", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+
+                    CoordinateValueManipulator(
+                        label = "X",
+                        value = activePt.x,
+                        onValueChange = { viewModel.updateExtrusionProfilePoint(activeIndex, it, activePt.y) }
+                    )
+                    CoordinateValueManipulator(
+                        label = "Y",
+                        value = activePt.y,
+                        onValueChange = { viewModel.updateExtrusionProfilePoint(activeIndex, activePt.x, it) }
+                    )
+                }
+            }
+            else -> {
+                val (defaultVertices, _) = generateEntityGeometry(entity.copy(vertexOffsets = emptyList()))
+                val vertexCount = defaultVertices.size
+
+                if (vertexCount == 0) {
+                    Text("조절할 수 있는 꼭짓점이 없습니다.", fontSize = 11.sp, color = Color.Gray)
+                } else {
+                    val maxShowVertices = kotlin.math.min(vertexCount, 16)
+                    val activeIndex = if (selectedVertexIndex < maxShowVertices) selectedVertexIndex else 0
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("선택 꼭짓점: ", fontSize = 11.sp)
+                        ScrollableTabRow(
+                            selectedTabIndex = activeIndex,
+                            edgePadding = 0.dp,
+                            modifier = Modifier.weight(1f).height(36.dp),
+                            divider = {},
+                            indicator = {}
+                        ) {
+                            for (index in 0 until maxShowVertices) {
+                                Tab(
+                                    selected = activeIndex == index,
+                                    onClick = { onVertexIndexChange(index) },
+                                    text = { Text("V$index", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val offsets = entity.vertexOffsets ?: emptyList()
+                    val existingOffset = if (activeIndex < offsets.size) {
+                        offsets[activeIndex]
+                    } else {
+                        Point3D(0f, 0f, 0f)
+                    }
+
+                    val defV = defaultVertices[activeIndex]
+                    Text(
+                        text = "V$activeIndex 기본 위치: X:${defV.x.toInt()}, Y:${defV.y.toInt()}, Z:${defV.z.toInt()}",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text("꼭짓점 개별 미세조정 오프셋 (Offset Translation)", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+
+                    CoordinateValueManipulator(
+                        label = "dX",
+                        value = existingOffset.x,
+                        onValueChange = { viewModel.updateVertexOffset(activeIndex, it, existingOffset.y, existingOffset.z) }
+                    )
+                    CoordinateValueManipulator(
+                        label = "dY",
+                        value = existingOffset.y,
+                        onValueChange = { viewModel.updateVertexOffset(activeIndex, existingOffset.x, it, existingOffset.z) }
+                    )
+                    CoordinateValueManipulator(
+                        label = "dZ",
+                        value = existingOffset.z,
+                        onValueChange = { viewModel.updateVertexOffset(activeIndex, existingOffset.x, existingOffset.y, it) }
+                    )
+                }
+            }
+        }
+    }
+}
+
 // Extension Helpers for custom layout elements
 fun Modifier.scaleRelative(scale: Float) = this.then(
     Modifier.padding(0.dp) // Just standard formatting
@@ -1642,6 +2654,220 @@ fun Modifier.scaleRelative(scale: Float) = this.then(
 fun Modifier.maxHeight(max: androidx.compose.ui.unit.Dp) = this.then(
     Modifier.heightIn(max = max)
 )
+
+data class EditableVertex(
+    val index: Int,
+    val label: String,
+    val worldPos: Point3D,
+    val screenPos: Offset
+)
+
+fun getEditableVertices(
+    entity: CadEntity,
+    cameraState: ViewportState,
+    viewMode: ViewportMode,
+    screenWidth: Float,
+    screenHeight: Float
+): List<EditableVertex> {
+    val cx = screenWidth / 2f
+    val cy = screenHeight / 2f
+    val (worldVertices, _) = generateEntityGeometry(entity)
+    
+    // Sort vertices by camera distance to prioritize the ones closest to the eye
+    val yawRad = Math.toRadians(cameraState.yaw.toDouble()).toFloat()
+    val pitchRad = Math.toRadians(cameraState.pitch.toDouble()).toFloat()
+
+    val indexWithDepth = worldVertices.indices.map { idx ->
+        val wp = worldVertices[idx]
+        // Rotate point to camera space
+        var v_cam = MathUtils.rotateY(wp, yawRad)
+        v_cam = MathUtils.rotateX(v_cam, pitchRad)
+        val depth = v_cam.z + 800f
+        idx to depth
+    }
+    // Sort by depth ascending so that closest to the camera/observer are first
+    val sortedIndices = indexWithDepth.sortedBy { it.second }.map { it.first }
+    val maxCount = 40
+    
+    val list = mutableListOf<EditableVertex>()
+    when (entity.type) {
+        EntityType.POLYLINE -> {
+            val pts = entity.polylinePoints ?: emptyList()
+            // Retain the top N closest points, ordered by camera depth priority (closest first)
+            val prioritizedIndices = sortedIndices.filter { it < pts.size && it < worldVertices.size }.take(maxCount)
+            for (idx in prioritizedIndices) {
+                val wp = worldVertices[idx]
+                val sp = CadRenderer.projectPoint(wp, cameraState, viewMode, cx, cy)
+                list.add(EditableVertex(idx, "P$idx", wp, Offset(sp.x, sp.y)))
+            }
+        }
+        EntityType.EXTRUSION -> {
+            val profile = if (entity.extrusionProfile != null && entity.extrusionProfile.isNotEmpty()) {
+                entity.extrusionProfile
+            } else {
+                CadDefaults.ProfileHexagon
+            }
+            val numPoints = profile.size
+            val totalCount = 2 * numPoints
+            // Retain the top N closest points, ordered by camera depth priority (closest first)
+            val prioritizedIndices = sortedIndices.filter { it < worldVertices.size && it < totalCount }.take(maxCount)
+            for (idx in prioritizedIndices) {
+                val wp = worldVertices[idx]
+                val sp = CadRenderer.projectPoint(wp, cameraState, viewMode, cx, cy)
+                val label = if (idx < numPoints) "V$idx (Bottom)" else "V${idx - numPoints} (Top)"
+                list.add(EditableVertex(idx, label, wp, Offset(sp.x, sp.y)))
+            }
+        }
+        else -> {
+            val vertexCount = worldVertices.size
+            // Retain the top N closest points, ordered by camera depth priority (closest first)
+            val prioritizedIndices = sortedIndices.filter { it < worldVertices.size && it < vertexCount }.take(maxCount)
+            for (idx in prioritizedIndices) {
+                val wp = worldVertices[idx]
+                val sp = CadRenderer.projectPoint(wp, cameraState, viewMode, cx, cy)
+                list.add(EditableVertex(idx, "V$idx", wp, Offset(sp.x, sp.y)))
+            }
+        }
+    }
+    return list
+}
+
+fun getEditableVertices2D(
+    entity: CadEntity,
+    cameraState: ViewportState,
+    plane: ViewportMode,
+    screenWidth: Float,
+    screenHeight: Float
+): List<EditableVertex> {
+    val centerX = screenWidth / 2f
+    val centerY = screenHeight / 2f
+    val zoom = cameraState.zoom * 1.5f
+    val panX = cameraState.panX
+    val panY = cameraState.panY
+    val (worldVertices, _) = generateEntityGeometry(entity)
+    
+    // Sort vertices by 2D depth to prioritize the ones closest to the eye
+    val indexWithDepth = worldVertices.indices.map { idx ->
+        val wp = worldVertices[idx]
+        val depth = when (plane) {
+            ViewportMode.TOP -> wp.z - entity.z
+            ViewportMode.FRONT -> wp.y - entity.y
+            ViewportMode.RIGHT -> wp.x - entity.x
+            else -> 0f
+        }
+        idx to depth
+    }
+    // Sort by depth descending so that closest to the camera/observer are first
+    val sortedIndices = indexWithDepth.sortedByDescending { it.second }.map { it.first }
+    val maxCount = 40
+
+    val list = mutableListOf<EditableVertex>()
+    when (entity.type) {
+        EntityType.POLYLINE -> {
+            val pts = entity.polylinePoints ?: emptyList()
+            val prioritizedSet = sortedIndices.filter { it < pts.size }.take(maxCount).toSet()
+            pts.forEachIndexed { idx, _ ->
+                if (idx < worldVertices.size && idx in prioritizedSet) {
+                    val wp = worldVertices[idx]
+                    val wx = when (plane) {
+                        ViewportMode.TOP -> wp.x
+                        ViewportMode.FRONT -> wp.x
+                        ViewportMode.RIGHT -> wp.y
+                        else -> wp.x
+                    }
+                    val wy = when (plane) {
+                        ViewportMode.TOP -> wp.y
+                        ViewportMode.FRONT -> wp.z
+                        ViewportMode.RIGHT -> wp.z
+                        else -> wp.y
+                    }
+                    val depth = when (plane) {
+                        ViewportMode.TOP -> wp.z - entity.z
+                        ViewportMode.FRONT -> wp.y - entity.y
+                        ViewportMode.RIGHT -> wp.x - entity.x
+                        else -> 0f
+                    }
+                    val staggerX = if (depth > 0.1f) 14f else if (depth < -0.1f) -14f else 0f
+                    val staggerY = if (depth > 0.1f) -14f else if (depth < -0.1f) 14f else 0f
+                    val sp = Offset(centerX + panX + (wx * zoom) + staggerX, centerY + panY - (wy * zoom) + staggerY)
+                    list.add(EditableVertex(idx, "P$idx", wp, sp))
+                }
+            }
+        }
+        EntityType.EXTRUSION -> {
+            val profile = if (entity.extrusionProfile != null && entity.extrusionProfile.isNotEmpty()) {
+                entity.extrusionProfile
+            } else {
+                CadDefaults.ProfileHexagon
+            }
+            val numPoints = profile.size
+            val totalCount = 2 * numPoints
+            val prioritizedSet = sortedIndices.filter { it < worldVertices.size && it < totalCount }.take(maxCount).toSet()
+
+            for (idx in 0 until totalCount) {
+                if (idx < worldVertices.size && idx in prioritizedSet) {
+                    val wp = worldVertices[idx]
+                    val wx = when (plane) {
+                        ViewportMode.TOP -> wp.x
+                        ViewportMode.FRONT -> wp.x
+                        ViewportMode.RIGHT -> wp.y
+                        else -> wp.x
+                    }
+                    val wy = when (plane) {
+                        ViewportMode.TOP -> wp.y
+                        ViewportMode.FRONT -> wp.z
+                        ViewportMode.RIGHT -> wp.z
+                        else -> wp.y
+                    }
+                    val depth = when (plane) {
+                        ViewportMode.TOP -> wp.z - entity.z
+                        ViewportMode.FRONT -> wp.y - entity.y
+                        ViewportMode.RIGHT -> wp.x - entity.x
+                        else -> 0f
+                    }
+                    val staggerX = if (depth > 0.1f) 14f else if (depth < -0.1f) -14f else 0f
+                    val staggerY = if (depth > 0.1f) -14f else if (depth < -0.1f) 14f else 0f
+                    val sp = Offset(centerX + panX + (wx * zoom) + staggerX, centerY + panY - (wy * zoom) + staggerY)
+                    val label = if (idx < numPoints) "V$idx (Bottom)" else "V${idx - numPoints} (Top)"
+                    list.add(EditableVertex(idx, label, wp, sp))
+                }
+            }
+        }
+        else -> {
+            val vertexCount = worldVertices.size
+            val prioritizedSet = sortedIndices.filter { it < worldVertices.size && it < vertexCount }.take(maxCount).toSet()
+
+            for (idx in 0 until vertexCount) {
+                if (idx < worldVertices.size && idx in prioritizedSet) {
+                    val wp = worldVertices[idx]
+                    val wx = when (plane) {
+                        ViewportMode.TOP -> wp.x
+                        ViewportMode.FRONT -> wp.x
+                        ViewportMode.RIGHT -> wp.y
+                        else -> wp.x
+                    }
+                    val wy = when (plane) {
+                        ViewportMode.TOP -> wp.y
+                        ViewportMode.FRONT -> wp.z
+                        ViewportMode.RIGHT -> wp.z
+                        else -> wp.y
+                    }
+                    val depth = when (plane) {
+                        ViewportMode.TOP -> wp.z - entity.z
+                        ViewportMode.FRONT -> wp.y - entity.y
+                        ViewportMode.RIGHT -> wp.x - entity.x
+                        else -> 0f
+                    }
+                    val staggerX = if (depth > 0.1f) 14f else if (depth < -0.1f) -14f else 0f
+                    val staggerY = if (depth > 0.1f) -14f else if (depth < -0.1f) 14f else 0f
+                    val sp = Offset(centerX + panX + (wx * zoom) + staggerX, centerY + panY - (wy * zoom) + staggerY)
+                    list.add(EditableVertex(idx, "V$idx", wp, sp))
+                }
+            }
+        }
+    }
+    return list
+}
 
 @Composable
 fun Solid3DWorkspace(
@@ -1652,25 +2878,130 @@ fun Solid3DWorkspace(
     gridSize: Float,
     dragControlMode: String,
     viewModel: CadViewModel,
+    onVertexClick: (Int, CadEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var draggedVertexIndex by remember { mutableStateOf(-1) }
+    val selectedEntity = remember(entities, selectedEntityId) {
+        entities.find { it.id == selectedEntityId }
+    }
+
+    val showSplitPreviewVal by viewModel.showSplittingPreview.collectAsStateWithLifecycle()
+    val sliceNormalVal by viewModel.slicePlaneNormal.collectAsStateWithLifecycle()
+    val slicePosVal by viewModel.slicePlanePos.collectAsStateWithLifecycle()
+    val showGrid by viewModel.showGrid.collectAsStateWithLifecycle()
+    val gridPlane by viewModel.gridPlane.collectAsStateWithLifecycle()
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF111622)) // Ultra deep slate/navy color
-            .pointerInput(dragControlMode) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    if (dragControlMode == "ORBIT") {
-                        viewModel.rotateYaw(-dragAmount.x * 0.35f)
-                        viewModel.rotatePitch(dragAmount.y * 0.35f)
-                    } else {
-                        viewModel.panViewport(dragAmount.x, dragAmount.y)
+            .pointerInput(selectedEntity, cameraState, viewMode, dragControlMode) {
+                detectDragGestures(
+                    onDragStart = { startOffset ->
+                        viewModel.recordHistoryState()
+                        if (selectedEntity != null) {
+                            val vertices = getEditableVertices(selectedEntity, cameraState, viewMode, size.width.toFloat(), size.height.toFloat())
+                            val clicked = vertices.find { ev ->
+                                val dist = kotlin.math.sqrt((startOffset.x - ev.screenPos.x) * (startOffset.x - ev.screenPos.x) + (startOffset.y - ev.screenPos.y) * (startOffset.y - ev.screenPos.y))
+                                dist < 45f // touch target sensitivity
+                            }
+                            if (clicked != null) {
+                                draggedVertexIndex = clicked.index
+                            } else {
+                                draggedVertexIndex = -1
+                            }
+                        } else {
+                            draggedVertexIndex = -1
+                        }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        if (draggedVertexIndex != -1 && selectedEntity != null) {
+                            val rx_rad = Math.toRadians(selectedEntity.rx.toDouble()).toFloat()
+                            val ry_rad = Math.toRadians(selectedEntity.ry.toDouble()).toFloat()
+                            val rz_rad = Math.toRadians(selectedEntity.rz.toDouble()).toFloat()
+                            val yawRad = Math.toRadians(cameraState.yaw.toDouble()).toFloat()
+                            val pitchRad = Math.toRadians(cameraState.pitch.toDouble()).toFloat()
+
+                            val geom = generateEntityGeometry(selectedEntity)
+                            val worldVertices = geom.first
+                            if (draggedVertexIndex < worldVertices.size) {
+                                val v_world = worldVertices[draggedVertexIndex]
+
+                                var v_cam = MathUtils.rotateY(v_world, yawRad)
+                                v_cam = MathUtils.rotateX(v_cam, pitchRad)
+
+                                val factor = if (viewMode == ViewportMode.PERSPECTIVE) {
+                                    val distZ = v_cam.z + 800f
+                                    if (distZ > 50f) 600f / distZ else 12f
+                                } else {
+                                    0.8f
+                                }
+                                val zoomScale = factor * cameraState.zoom
+
+                                val dcx = dragAmount.x / zoomScale
+                                val dcy = -dragAmount.y / zoomScale
+
+                                var d_world = MathUtils.rotateX(Point3D(dcx, dcy, 0f), -pitchRad)
+                                d_world = MathUtils.rotateY(d_world, -yawRad)
+
+                                var d_local = MathUtils.rotateZ(d_world, -rz_rad)
+                                d_local = MathUtils.rotateY(d_local, -ry_rad)
+                                d_local = MathUtils.rotateX(d_local, -rx_rad)
+
+                                when (selectedEntity.type) {
+                                    EntityType.POLYLINE -> {
+                                        val currentPts = selectedEntity.polylinePoints ?: emptyList()
+                                        if (draggedVertexIndex < currentPts.size) {
+                                            val currPt = currentPts[draggedVertexIndex]
+                                            viewModel.updatePolylinePoint(draggedVertexIndex, currPt.x + d_local.x, currPt.y + d_local.y, currPt.z + d_local.z, saveToHistory = false)
+                                        }
+                                    }
+                                    EntityType.EXTRUSION -> {
+                                        val profile = if (selectedEntity.extrusionProfile != null && selectedEntity.extrusionProfile.isNotEmpty()) selectedEntity.extrusionProfile else CadDefaults.ProfileHexagon
+                                        val numPoints = profile.size
+                                        val profileIndex = draggedVertexIndex % numPoints
+                                        if (profileIndex < profile.size) {
+                                            val currPt = profile[profileIndex]
+                                            viewModel.updateExtrusionProfilePoint(profileIndex, currPt.x + d_local.x, currPt.y + d_local.y, saveToHistory = false)
+                                        }
+                                    }
+                                    else -> {
+                                        val offsets = selectedEntity.vertexOffsets ?: emptyList()
+                                        val currOffset = if (draggedVertexIndex < offsets.size) offsets[draggedVertexIndex] else Point3D(0f, 0f, 0f)
+                                        viewModel.updateVertexOffset(draggedVertexIndex, currOffset.x + d_local.x, currOffset.y + d_local.y, currOffset.z + d_local.z, saveToHistory = false)
+                                    }
+                                }
+                            }
+                        } else {
+                            if (dragControlMode == "ORBIT") {
+                                viewModel.rotateYaw(-dragAmount.x * 0.35f)
+                                viewModel.rotatePitch(dragAmount.y * 0.35f)
+                            } else {
+                                viewModel.panViewport(dragAmount.x, dragAmount.y)
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        draggedVertexIndex = -1
                     }
-                }
+                )
             }
-            .pointerInput(entities, selectedEntityId, cameraState, viewMode) {
+            .pointerInput(selectedEntity, cameraState, viewMode) {
                 detectTapGestures { offset ->
+                    if (selectedEntity != null) {
+                        val vertices = getEditableVertices(selectedEntity, cameraState, viewMode, size.width.toFloat(), size.height.toFloat())
+                        val clicked = vertices.find { ev ->
+                            val dist = kotlin.math.sqrt((offset.x - ev.screenPos.x) * (offset.x - ev.screenPos.x) + (offset.y - ev.screenPos.y) * (offset.y - ev.screenPos.y))
+                            dist < 45f
+                        }
+                        if (clicked != null) {
+                            onVertexClick(clicked.index, selectedEntity)
+                            return@detectTapGestures
+                        }
+                    }
+
                     val hit = CadRenderer.hitTestEntity(
                         tapX = offset.x,
                         tapY = offset.y,
@@ -1681,6 +3012,19 @@ fun Solid3DWorkspace(
                         screenHeight = size.height.toFloat()
                     )
                     viewModel.selectEntity(hit?.id)
+                    if (hit != null) {
+                        val vertices = getEditableVertices(hit, cameraState, viewMode, size.width.toFloat(), size.height.toFloat())
+                        if (vertices.isNotEmpty()) {
+                            val closest = vertices.minByOrNull { ev ->
+                                val dx = offset.x - ev.screenPos.x
+                                val dy = offset.y - ev.screenPos.y
+                                dx * dx + dy * dy
+                            }
+                            if (closest != null) {
+                                onVertexClick(closest.index, hit)
+                            }
+                        }
+                    }
                 }
             }
             .testTag("cad_canvas_solid")
@@ -1691,7 +3035,8 @@ fun Solid3DWorkspace(
             camera = cameraState,
             viewMode = viewMode,
             gridSize = gridSize,
-            showGrid = true
+            showGrid = showGrid,
+            gridPlane = gridPlane
         )
 
         // Draw all 3D solid elements with Painter overlap and dynamic shading
@@ -1702,6 +3047,208 @@ fun Solid3DWorkspace(
             camera = cameraState,
             viewMode = viewMode
         )
+
+        // Draw real-time slicing plane splitting preview
+        if (showSplitPreviewVal && selectedEntity != null) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            
+            val nx: Float; val ny: Float; val nz: Float
+            when (sliceNormalVal) {
+                "X" -> { nx = 1f; ny = 0f; nz = 0f }
+                "Y" -> { nx = 0f; ny = 1f; nz = 0f }
+                else -> { nx = 0f; ny = 0f; nz = 1f }
+            }
+            
+            // Plane center point
+            val px = selectedEntity.x + nx * slicePosVal
+            val py = selectedEntity.y + ny * slicePosVal
+            val pz = selectedEntity.z + nz * slicePosVal
+            
+            // Size of visualization plane
+            val sizeH = 150f
+            val corners = when (sliceNormalVal) {
+                "X" -> listOf(
+                    Point3D(px, py - sizeH, pz - sizeH),
+                    Point3D(px, py + sizeH, pz - sizeH),
+                    Point3D(px, py + sizeH, pz + sizeH),
+                    Point3D(px, py - sizeH, pz + sizeH)
+                )
+                "Y" -> listOf(
+                    Point3D(px - sizeH, py, pz - sizeH),
+                    Point3D(px + sizeH, py, pz - sizeH),
+                    Point3D(px + sizeH, py, pz + sizeH),
+                    Point3D(px - sizeH, py, pz + sizeH)
+                )
+                else -> listOf(
+                    Point3D(px - sizeH, py - sizeH, pz),
+                    Point3D(px + sizeH, py - sizeH, pz),
+                    Point3D(px + sizeH, py + sizeH, pz),
+                    Point3D(px - sizeH, py + sizeH, pz)
+                )
+            }
+            
+            val screenCorners = corners.map { 
+                val sp = CadRenderer.projectPoint(it, cameraState, viewMode, cx, cy)
+                Offset(sp.x, sp.y)
+            }
+            
+            val path = Path().apply {
+                moveTo(screenCorners[0].x, screenCorners[0].y)
+                lineTo(screenCorners[1].x, screenCorners[1].y)
+                lineTo(screenCorners[2].x, screenCorners[2].y)
+                lineTo(screenCorners[3].x, screenCorners[3].y)
+                close()
+            }
+            drawPath(
+                path = path,
+                color = Color(0x3300FFFF) // Translucent Cyan
+            )
+            drawPath(
+                path = path,
+                color = Color(0xFF00FFFF), // Solid Cyan border outline
+                style = Stroke(width = 3f)
+            )
+            
+            val (worldVertices, faces) = generateEntityGeometry(selectedEntity)
+            val dPlane = -(nx * px + ny * py + nz * pz)
+            fun signedDist(v: Point3D): Float {
+                return nx * v.x + ny * v.y + nz * v.z + dPlane
+            }
+            
+            val faceIntersections = mutableListOf<Point3D>()
+            faces.forEach { face ->
+                val n = face.size
+                val faceInterPts = mutableListOf<Point3D>()
+                for (i in 0 until n) {
+                    val idxCurr = face[i]
+                    val idxNext = face[(i + 1) % n]
+                    if (idxCurr < worldVertices.size && idxNext < worldVertices.size) {
+                        val vCurr = worldVertices[idxCurr]
+                        val vNext = worldVertices[idxNext]
+                        val dCurr = signedDist(vCurr)
+                        val dNext = signedDist(vNext)
+                        
+                        if (dCurr * dNext < -0.001f) {
+                            val t = -dCurr / (dNext - dCurr)
+                            val pInter = Point3D(
+                                vCurr.x + t * (vNext.x - vCurr.x),
+                                vCurr.y + t * (vNext.y - vCurr.y),
+                                vCurr.z + t * (vNext.z - vCurr.z)
+                            )
+                            faceInterPts.add(pInter)
+                        }
+                    }
+                }
+                
+                if (faceInterPts.size >= 2) {
+                    val pInter1 = faceInterPts[0]
+                    val pInter2 = faceInterPts[1]
+                    val sp1 = CadRenderer.projectPoint(pInter1, cameraState, viewMode, cx, cy)
+                    val sp2 = CadRenderer.projectPoint(pInter2, cameraState, viewMode, cx, cy)
+                    
+                    drawLine(
+                        color = Color(0xFF00FF00), // Brilliant neon green!
+                        start = Offset(sp1.x, sp1.y),
+                        end = Offset(sp2.x, sp2.y),
+                        strokeWidth = 6f
+                    )
+                    
+                    drawCircle(
+                        color = Color(0xFF00FF00),
+                        radius = 8f,
+                        center = Offset(sp1.x, sp1.y)
+                    )
+                    drawCircle(
+                        color = Color(0xFF00FF00),
+                        radius = 8f,
+                        center = Offset(sp2.x, sp2.y)
+                    )
+                    
+                    faceIntersections.addAll(faceInterPts)
+                }
+            }
+            
+            if (faceIntersections.size >= 3) {
+                var sx = 0f; var sy = 0f; var sz = 0f
+                val uniquePts = faceIntersections.distinctBy { 
+                    "${((it.x * 10).toInt())}_${((it.y * 10).toInt())}_${((it.z * 10).toInt())}" 
+                }
+                uniquePts.forEach { sx += it.x; sy += it.y; sz += it.z }
+                val clCent = Point3D(sx / uniquePts.size, sy / uniquePts.size, sz / uniquePts.size)
+                
+                val ux: Float; val uy: Float; val uz: Float
+                if (kotlin.math.abs(nz) < 0.9f) {
+                    val len = kotlin.math.sqrt((ny*ny + nx*nx).toDouble()).toFloat()
+                    ux = ny / len; uy = -nx / len; uz = 0f
+                } else {
+                    ux = 1f; uy = 0f; uz = 0f
+                }
+                val vx = ny * uz - nz * uy
+                val vy = nz * ux - nx * uz
+                val vz = nx * uy - ny * ux
+                
+                val sortedLoops = uniquePts.sortedBy { pt ->
+                    val dx = pt.x - clCent.x
+                    val dy = pt.y - clCent.y
+                    val dz = pt.z - clCent.z
+                    val u = dx * ux + dy * uy + dz * uz
+                    val v = dx * vx + dy * vy + dz * vz
+                    kotlin.math.atan2(v.toDouble(), u.toDouble()).toFloat()
+                }
+                
+                if (sortedLoops.size >= 3) {
+                    val loopPath = Path().apply {
+                        val firstSp = CadRenderer.projectPoint(sortedLoops[0], cameraState, viewMode, cx, cy)
+                        moveTo(firstSp.x, firstSp.y)
+                        for (i in 1 until sortedLoops.size) {
+                            val nextSp = CadRenderer.projectPoint(sortedLoops[i], cameraState, viewMode, cx, cy)
+                            lineTo(nextSp.x, nextSp.y)
+                        }
+                        close()
+                    }
+                    drawPath(
+                        path = loopPath,
+                        color = Color(0x6600FF00) // Transparent neon green
+                    )
+                }
+            }
+        }
+
+        // Draw Interactive Vertex Handles in 3D Canvas
+        if (selectedEntity != null) {
+            val vertices = getEditableVertices(selectedEntity, cameraState, viewMode, size.width, size.height)
+            vertices.forEach { ev ->
+                // Outer glow
+                drawCircle(
+                    color = Color(0x33FFFFFF),
+                    radius = 20f,
+                    center = ev.screenPos
+                )
+                // Middle border ring
+                drawCircle(
+                    color = Color(0x991E2E4E),
+                    radius = 12f,
+                    center = ev.screenPos,
+                    style = Stroke(width = 3f)
+                )
+                // Inner filled color (active Yellow, or Blue)
+                val isDragged = (draggedVertexIndex == ev.index)
+                val color = if (isDragged) Color(0xFFFFEB3B) else Color(0xFF03A9F4)
+                drawCircle(
+                    color = color,
+                    radius = 8f,
+                    center = ev.screenPos
+                )
+                // White accent ring
+                drawCircle(
+                    color = Color.White,
+                    radius = 8f,
+                    center = ev.screenPos,
+                    style = Stroke(width = 2f)
+                )
+            }
+        }
     }
 }
 
@@ -1722,21 +3269,163 @@ fun Blueprint2DCanvas(
     cameraState: ViewportState,
     current2DPlane: ViewportMode,
     onDimClick: (BlueprintDim) -> Unit,
+    onVertexClick: (Int, CadEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
     var dragStartOffset by remember { mutableStateOf<Offset?>(null) }
     var selectedEntityDragOffsetStart by remember { mutableStateOf<Point3D?>(null) }
+    var draggedVertexIndex by remember { mutableStateOf(-1) }
 
     val selectedEntity = remember(entities, selectedEntityId) {
         entities.find { it.id == selectedEntityId }
     }
 
+    val showGrid by viewModel.showGrid.collectAsStateWithLifecycle()
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0F1524)) // Dark AutoCAD grid background style
-            .pointerInput(entities, selectedEntityId, cameraState, current2DPlane) {
+            .pointerInput(selectedEntity, cameraState, current2DPlane) {
+                detectDragGestures(
+                    onDragStart = { startOffset ->
+                        viewModel.recordHistoryState()
+                        dragStartOffset = startOffset
+                        if (selectedEntity != null) {
+                            // Check if click is near an editable vertex
+                            val vertices = getEditableVertices2D(selectedEntity, cameraState, current2DPlane, size.width.toFloat(), size.height.toFloat())
+                            val clicked = vertices.find { ev ->
+                                val dist = kotlin.math.sqrt((startOffset.x - ev.screenPos.x) * (startOffset.x - ev.screenPos.x) + (startOffset.y - ev.screenPos.y) * (startOffset.y - ev.screenPos.y))
+                                dist < 45f
+                            }
+                            if (clicked != null) {
+                                draggedVertexIndex = clicked.index
+                                selectedEntityDragOffsetStart = null
+                            } else {
+                                draggedVertexIndex = -1
+                                // Else, fallback to regular center-dragging of entire shape
+                                val wx = when (current2DPlane) {
+                                    ViewportMode.TOP -> selectedEntity.x
+                                    ViewportMode.FRONT -> selectedEntity.x
+                                    ViewportMode.RIGHT -> selectedEntity.y
+                                    else -> selectedEntity.x
+                                }
+                                val wy = when (current2DPlane) {
+                                    ViewportMode.TOP -> selectedEntity.y
+                                    ViewportMode.FRONT -> selectedEntity.z
+                                    ViewportMode.RIGHT -> selectedEntity.z
+                                    else -> selectedEntity.y
+                                }
+                                val centerX = size.width / 2f
+                                val centerY = size.height / 2f
+                                val zoom = cameraState.zoom * 1.5f
+                                val panX = cameraState.panX
+                                val panY = cameraState.panY
+                                val screenPos = Offset(
+                                    centerX + panX + (wx * zoom),
+                                    centerY + panY - (wy * zoom)
+                                )
+                                val distToCenter = kotlin.math.sqrt((startOffset.x - screenPos.x) * (startOffset.x - screenPos.x) + (startOffset.y - screenPos.y) * (startOffset.y - screenPos.y))
+                                if (distToCenter < 100f) {
+                                    selectedEntityDragOffsetStart = Point3D(selectedEntity.x, selectedEntity.y, selectedEntity.z)
+                                } else {
+                                    selectedEntityDragOffsetStart = null
+                                }
+                            }
+                        } else {
+                            draggedVertexIndex = -1
+                            selectedEntityDragOffsetStart = null
+                        }
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        val zoom = cameraState.zoom * 1.5f
+                        if (draggedVertexIndex != -1 && selectedEntity != null) {
+                            val dxWorld = dragAmount.x / zoom
+                            val dyWorld = -dragAmount.y / zoom
+
+                            // Transform local rotation back
+                            val rx_rad = Math.toRadians(selectedEntity.rx.toDouble()).toFloat()
+                            val ry_rad = Math.toRadians(selectedEntity.ry.toDouble()).toFloat()
+                            val rz_rad = Math.toRadians(selectedEntity.rz.toDouble()).toFloat()
+
+                            // 2D plane displacement as world spatial displacement
+                            val d_world = when (current2DPlane) {
+                                ViewportMode.TOP -> Point3D(dxWorld, dyWorld, 0f)
+                                ViewportMode.FRONT -> Point3D(dxWorld, 0f, dyWorld)
+                                ViewportMode.RIGHT -> Point3D(0f, dxWorld, dyWorld)
+                                else -> Point3D(dxWorld, dyWorld, 0f)
+                            }
+
+                            var d_local = MathUtils.rotateZ(d_world, -rz_rad)
+                            d_local = MathUtils.rotateY(d_local, -ry_rad)
+                            d_local = MathUtils.rotateX(d_local, -rx_rad)
+
+                            when (selectedEntity.type) {
+                                EntityType.POLYLINE -> {
+                                    val currentPts = selectedEntity.polylinePoints ?: emptyList()
+                                    if (draggedVertexIndex < currentPts.size) {
+                                        val currPt = currentPts[draggedVertexIndex]
+                                        viewModel.updatePolylinePoint(draggedVertexIndex, currPt.x + d_local.x, currPt.y + d_local.y, currPt.z + d_local.z, saveToHistory = false)
+                                    }
+                                }
+                                EntityType.EXTRUSION -> {
+                                    val profile = if (selectedEntity.extrusionProfile != null && selectedEntity.extrusionProfile.isNotEmpty()) selectedEntity.extrusionProfile else CadDefaults.ProfileHexagon
+                                    val numPoints = profile.size
+                                    val profileIndex = draggedVertexIndex % numPoints
+                                    if (profileIndex < profile.size) {
+                                        val currPt = profile[profileIndex]
+                                        viewModel.updateExtrusionProfilePoint(profileIndex, currPt.x + d_local.x, currPt.y + d_local.y, saveToHistory = false)
+                                    }
+                                }
+                                else -> {
+                                    val offsets = selectedEntity.vertexOffsets ?: emptyList()
+                                    val currOffset = if (draggedVertexIndex < offsets.size) offsets[draggedVertexIndex] else Point3D(0f, 0f, 0f)
+                                    viewModel.updateVertexOffset(draggedVertexIndex, currOffset.x + d_local.x, currOffset.y + d_local.y, currOffset.z + d_local.z, saveToHistory = false)
+                                }
+                            }
+                        } else if (selectedEntityDragOffsetStart != null && selectedEntity != null) {
+                            val dxWorld = dragAmount.x / zoom
+                            val dyWorld = -dragAmount.y / zoom // Standard Y inversion
+
+                            when (current2DPlane) {
+                                ViewportMode.TOP -> {
+                                    viewModel.updateSelectedProperties(
+                                        x = selectedEntity.x + dxWorld,
+                                        y = selectedEntity.y + dyWorld,
+                                        saveToHistory = false
+                                    )
+                                }
+                                ViewportMode.FRONT -> {
+                                    viewModel.updateSelectedProperties(
+                                        x = selectedEntity.x + dxWorld,
+                                        z = selectedEntity.z + dyWorld,
+                                        saveToHistory = false
+                                    )
+                                }
+                                ViewportMode.RIGHT -> {
+                                    viewModel.updateSelectedProperties(
+                                        y = selectedEntity.y + dxWorld,
+                                        z = selectedEntity.z + dyWorld,
+                                        saveToHistory = false
+                                    )
+                                }
+                                else -> {}
+                            }
+                        } else {
+                            // Pan viewport sheet
+                            viewModel.panViewport(dragAmount.x, dragAmount.y)
+                        }
+                    },
+                    onDragEnd = {
+                        dragStartOffset = null
+                        selectedEntityDragOffsetStart = null
+                        draggedVertexIndex = -1
+                    }
+                )
+            }
+            .pointerInput(selectedEntity, cameraState, current2DPlane) {
                 detectTapGestures { tapOffset ->
                     val centerX = size.width / 2f
                     val centerY = size.height / 2f
@@ -1744,7 +3433,20 @@ fun Blueprint2DCanvas(
                     val panX = cameraState.panX
                     val panY = cameraState.panY
 
-                    // Check if tapped near any active dimension label
+                    // First, check if clicked on high-priority vertex handle!
+                    if (selectedEntity != null) {
+                        val vertices = getEditableVertices2D(selectedEntity, cameraState, current2DPlane, size.width.toFloat(), size.height.toFloat())
+                        val clicked = vertices.find { ev ->
+                            val dist = kotlin.math.sqrt((tapOffset.x - ev.screenPos.x) * (tapOffset.x - ev.screenPos.x) + (tapOffset.y - ev.screenPos.y) * (tapOffset.y - ev.screenPos.y))
+                            dist < 45f
+                        }
+                        if (clicked != null) {
+                            onVertexClick(clicked.index, selectedEntity)
+                            return@detectTapGestures
+                        }
+                    }
+
+                    // Second, check if tapped near any active dimension label
                     if (selectedEntity != null) {
                         val dims = getBlueprintDims(selectedEntity, centerX, centerY, zoom, panX, panY, current2DPlane)
                         val clickedDim = dims.find { dim ->
@@ -1763,118 +3465,76 @@ fun Blueprint2DCanvas(
                     var minDistance = Float.MAX_VALUE
 
                     entities.filter { it.isVisible }.forEach { entity ->
-                        val wx = when (current2DPlane) {
-                            ViewportMode.TOP -> entity.x
-                            ViewportMode.FRONT -> entity.x
-                            ViewportMode.RIGHT -> entity.y
-                            else -> entity.x
-                        }
-                        val wy = when (current2DPlane) {
-                            ViewportMode.TOP -> entity.y
-                            ViewportMode.FRONT -> entity.z
-                            ViewportMode.RIGHT -> entity.z
-                            else -> entity.y
-                        }
+                         val wx = when (current2DPlane) {
+                             ViewportMode.TOP -> entity.x
+                             ViewportMode.FRONT -> entity.x
+                             ViewportMode.RIGHT -> entity.y
+                             else -> entity.x
+                         }
+                         val wy = when (current2DPlane) {
+                             ViewportMode.TOP -> entity.y
+                             ViewportMode.FRONT -> entity.z
+                             ViewportMode.RIGHT -> entity.z
+                             else -> entity.y
+                         }
 
-                        val screenPos = Offset(
-                            centerX + panX + (wx * zoom),
-                            centerY + panY - (wy * zoom)
-                        )
+                         val screenPos = Offset(
+                             centerX + panX + (wx * zoom),
+                             centerY + panY - (wy * zoom)
+                         )
 
-                        val dx = tapOffset.x - screenPos.x
-                        val dy = tapOffset.y - screenPos.y
-                        val dist = kotlin.math.sqrt(dx * dx + dy * dy)
-                        if (dist < minDistance) {
-                            minDistance = dist
-                            nearestEntity = entity
-                        }
+                         val dx = tapOffset.x - screenPos.x
+                         val dy = tapOffset.y - screenPos.y
+                         val centerDist = kotlin.math.sqrt(dx * dx + dy * dy)
+
+                         // Measure distance to any vertex point too!
+                         val geom = generateEntityGeometry(entity)
+                         val worldVertices = geom.first
+                         var minVertexDist = Float.MAX_VALUE
+                         worldVertices.forEach { wp ->
+                             val px = when (current2DPlane) {
+                                 ViewportMode.TOP -> wp.x
+                                 ViewportMode.FRONT -> wp.x
+                                 ViewportMode.RIGHT -> wp.y
+                                 else -> wp.x
+                             }
+                             val py = when (current2DPlane) {
+                                 ViewportMode.TOP -> wp.y
+                                 ViewportMode.FRONT -> wp.z
+                                 ViewportMode.RIGHT -> wp.z
+                                 else -> wp.y
+                             }
+                             val vScreenPos = Offset(centerX + panX + (px * zoom), centerY + panY - (py * zoom))
+                             val dist = kotlin.math.sqrt((tapOffset.x - vScreenPos.x) * (tapOffset.x - vScreenPos.x) + (tapOffset.y - vScreenPos.y) * (tapOffset.y - vScreenPos.y))
+                             if (dist < minVertexDist) {
+                                 minVertexDist = dist
+                             }
+                         }
+
+                         val finalDist = kotlin.math.min(centerDist, minVertexDist)
+                         if (finalDist < minDistance) {
+                             minDistance = finalDist
+                             nearestEntity = entity
+                         }
                     }
 
                     if (minDistance < 60f && nearestEntity != null) {
-                        viewModel.selectEntity(nearestEntity!!.id)
+                        viewModel.selectEntity(nearestEntity.id)
+                        val vertices = getEditableVertices2D(nearestEntity, cameraState, current2DPlane, size.width.toFloat(), size.height.toFloat())
+                        if (vertices.isNotEmpty()) {
+                            val closest = vertices.minByOrNull { ev ->
+                                val dx = tapOffset.x - ev.screenPos.x
+                                val dy = tapOffset.y - ev.screenPos.y
+                                dx * dx + dy * dy
+                            }
+                            if (closest != null) {
+                                onVertexClick(closest.index, nearestEntity)
+                            }
+                        }
                     } else {
                         viewModel.selectEntity(null)
                     }
                 }
-            }
-            .pointerInput(entities, selectedEntityId, cameraState, current2DPlane) {
-                detectDragGestures(
-                    onDragStart = { startOffset ->
-                        val centerX = size.width / 2f
-                        val centerY = size.height / 2f
-                        val zoom = cameraState.zoom * 1.5f
-                        val panX = cameraState.panX
-                        val panY = cameraState.panY
-
-                        dragStartOffset = startOffset
-                        if (selectedEntity != null) {
-                            val wx = when (current2DPlane) {
-                                ViewportMode.TOP -> selectedEntity.x
-                                ViewportMode.FRONT -> selectedEntity.x
-                                ViewportMode.RIGHT -> selectedEntity.y
-                                else -> selectedEntity.x
-                            }
-                            val wy = when (current2DPlane) {
-                                ViewportMode.TOP -> selectedEntity.y
-                                ViewportMode.FRONT -> selectedEntity.z
-                                ViewportMode.RIGHT -> selectedEntity.z
-                                else -> selectedEntity.y
-                            }
-                            val screenPos = Offset(
-                                centerX + panX + (wx * zoom),
-                                centerY + panY - (wy * zoom)
-                            )
-                            val distToCenter = kotlin.math.sqrt((startOffset.x - screenPos.x) * (startOffset.x - screenPos.x) + (startOffset.y - screenPos.y) * (startOffset.y - screenPos.y))
-                            
-                            // If user clicked close to center -> drag object
-                            if (distToCenter < 100f) {
-                                selectedEntityDragOffsetStart = Point3D(selectedEntity.x, selectedEntity.y, selectedEntity.z)
-                            } else {
-                                selectedEntityDragOffsetStart = null
-                            }
-                        } else {
-                            selectedEntityDragOffsetStart = null
-                        }
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        if (selectedEntityDragOffsetStart != null && selectedEntity != null) {
-                            // Translate the physical object inside the 2D plane
-                            val zoom = cameraState.zoom * 1.5f
-                            val dxWorld = dragAmount.x / zoom
-                            val dyWorld = -dragAmount.y / zoom // Standard Y inversion
-
-                            when (current2DPlane) {
-                                ViewportMode.TOP -> {
-                                    viewModel.updateSelectedProperties(
-                                        x = selectedEntity.x + dxWorld,
-                                        y = selectedEntity.y + dyWorld
-                                    )
-                                }
-                                ViewportMode.FRONT -> {
-                                    viewModel.updateSelectedProperties(
-                                        x = selectedEntity.x + dxWorld,
-                                        z = selectedEntity.z + dyWorld
-                                    )
-                                }
-                                ViewportMode.RIGHT -> {
-                                    viewModel.updateSelectedProperties(
-                                        y = selectedEntity.y + dxWorld,
-                                        z = selectedEntity.z + dyWorld
-                                    )
-                                }
-                                else -> {}
-                            }
-                        } else {
-                            // Pan viewport sheet
-                            viewModel.panViewport(dragAmount.x, dragAmount.y)
-                        }
-                    },
-                    onDragEnd = {
-                        dragStartOffset = null
-                        selectedEntityDragOffsetStart = null
-                    }
-                )
             }
             .testTag("cad_blueprint_canvas")
     ) {
@@ -1885,30 +3545,32 @@ fun Blueprint2DCanvas(
         val panY = cameraState.panY
 
         // 1. Draw Blueprint Orthogonal Grid Lines
-        val gridInterval = 50f * (zoom / 150f).coerceIn(0.2f, 5f)
-        val startGridX = ((centerX + panX) % gridInterval) - gridInterval
-        val startGridY = ((centerY + panY) % gridInterval) - gridInterval
+        if (showGrid) {
+            val gridInterval = 50f * (zoom / 150f).coerceIn(0.2f, 5f)
+            val startGridX = ((centerX + panX) % gridInterval) - gridInterval
+            val startGridY = ((centerY + panY) % gridInterval) - gridInterval
 
-        // Grid lines
-        var gridX = startGridX
-        while (gridX < size.width) {
-            drawLine(
-                color = Color(0xFF1E2E4E),
-                start = Offset(gridX, 0f),
-                end = Offset(gridX, size.height),
-                strokeWidth = 1f
-            )
-            gridX += gridInterval
-        }
-        var gridY = startGridY
-        while (gridY < size.height) {
-            drawLine(
-                color = Color(0xFF1E2E4E),
-                start = Offset(0f, gridY),
-                end = Offset(size.width, gridY),
-                strokeWidth = 1f
-            )
-            gridY += gridInterval
+            // Grid lines
+            var gridX = startGridX
+            while (gridX < size.width) {
+                drawLine(
+                    color = Color(0xFF1E2E4E),
+                    start = Offset(gridX, 0f),
+                    end = Offset(gridX, size.height),
+                    strokeWidth = 1f
+                )
+                gridX += gridInterval
+            }
+            var gridY = startGridY
+            while (gridY < size.height) {
+                drawLine(
+                    color = Color(0xFF1E2E4E),
+                    start = Offset(0f, gridY),
+                    end = Offset(size.width, gridY),
+                    strokeWidth = 1f
+                )
+                gridY += gridInterval
+            }
         }
 
         // Standard origin XY reference projection axes standard colored
@@ -1960,155 +3622,92 @@ fun Blueprint2DCanvas(
                 centerY + panY - (wy * zoom)
             )
 
-            // Calculate bounding elements depending on shape
-            when (entity.type) {
-                EntityType.BOX -> {
-                    val scaleW = when (current2DPlane) {
-                        ViewportMode.TOP -> entity.width
-                        ViewportMode.FRONT -> entity.width
-                        ViewportMode.RIGHT -> entity.depth
-                        else -> entity.width
+            // Render 2D projected wireframe faces for the entity based on actual geometry
+            if (entity.type == EntityType.POLYLINE) {
+                val geom = generateEntityGeometry(entity)
+                val vertices = geom.first
+                for (i in 0 until vertices.size - 1) {
+                    val p1 = vertices[i]
+                    val p2 = vertices[i + 1]
+                    
+                    val p1x = when (current2DPlane) {
+                        ViewportMode.TOP -> p1.x
+                        ViewportMode.FRONT -> p1.x
+                        ViewportMode.RIGHT -> p1.y
+                        else -> p1.x
                     }
-                    val scaleH = when (current2DPlane) {
-                        ViewportMode.TOP -> entity.depth
-                        ViewportMode.FRONT -> entity.height
-                        ViewportMode.RIGHT -> entity.height
-                        else -> entity.depth
+                    val p1y = when (current2DPlane) {
+                        ViewportMode.TOP -> p1.y
+                        ViewportMode.FRONT -> p1.z
+                        ViewportMode.RIGHT -> p1.z
+                        else -> p1.y
                     }
-
-                    val rawLeft = screenCenter.x - (scaleW / 2) * zoom
-                    val rawTop = screenCenter.y - (scaleH / 2) * zoom
-                    val rawWidth = scaleW * zoom
-                    val rawHeight = scaleH * zoom
-
-                    // Draw translucent face fill
-                    drawRect(
-                        color = layerColor.copy(alpha = if (isSelected) 0.35f else 0.15f),
-                        topLeft = Offset(rawLeft, rawTop),
-                        size = androidx.compose.ui.geometry.Size(rawWidth, rawHeight)
-                    )
-
-                    // Draw thick geometry contour lines
-                    drawRect(
+                    val p1Screen = Offset(centerX + panX + (p1x * zoom), centerY + panY - (p1y * zoom))
+                    
+                    val p2x = when (current2DPlane) {
+                        ViewportMode.TOP -> p2.x
+                        ViewportMode.FRONT -> p2.x
+                        ViewportMode.RIGHT -> p2.y
+                        else -> p2.x
+                    }
+                    val p2y = when (current2DPlane) {
+                        ViewportMode.TOP -> p2.y
+                        ViewportMode.FRONT -> p2.z
+                        ViewportMode.RIGHT -> p2.z
+                        else -> p2.y
+                    }
+                    val p2Screen = Offset(centerX + panX + (p2x * zoom), centerY + panY - (p2y * zoom))
+                    
+                    drawLine(
                         color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                        topLeft = Offset(rawLeft, rawTop),
-                        size = androidx.compose.ui.geometry.Size(rawWidth, rawHeight),
-                        style = Stroke(width = if (isSelected) 3f else 1.8f)
+                        start = p1Screen,
+                        end = p2Screen,
+                        strokeWidth = if (isSelected) 3.5f else 2.0f
                     )
                 }
-                EntityType.CYLINDER -> {
-                    val isCircleView = (current2DPlane == ViewportMode.TOP)
-                    if (isCircleView) {
-                        val screenRad = entity.radius * zoom
-                        drawCircle(
-                            color = layerColor.copy(alpha = if (isSelected) 0.35f else 0.15f),
-                            center = screenCenter,
-                            radius = screenRad
-                        )
-                        drawCircle(
-                            color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                            center = screenCenter,
-                            radius = screenRad,
-                            style = Stroke(width = if (isSelected) 3f else 1.8f)
-                        )
-                    } else {
-                        // Rectangular elevation projection of cylinder
-                        val rawLeft = screenCenter.x - entity.radius * zoom
-                        val rawTop = screenCenter.y - (entity.height / 2) * zoom
-                        val rawWidth = entity.radius * 2 * zoom
-                        val rawHeight = entity.height * zoom
-
-                        drawRect(
-                            color = layerColor.copy(alpha = if (isSelected) 0.35f else 0.15f),
-                            topLeft = Offset(rawLeft, rawTop),
-                            size = androidx.compose.ui.geometry.Size(rawWidth, rawHeight)
-                        )
-                        drawRect(
-                            color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                            topLeft = Offset(rawLeft, rawTop),
-                            size = androidx.compose.ui.geometry.Size(rawWidth, rawHeight),
-                            style = Stroke(width = if (isSelected) 3f else 1.8f)
-                        )
-                    }
-                }
-                EntityType.SPHERE -> {
-                    val screenRad = entity.radius * zoom
-                    drawCircle(
-                        color = layerColor.copy(alpha = if (isSelected) 0.35f else 0.15f),
-                        center = screenCenter,
-                        radius = screenRad
-                    )
-                    drawCircle(
-                        color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                        center = screenCenter,
-                        radius = screenRad,
-                        style = Stroke(width = if (isSelected) 3f else 1.8f)
-                    )
-                }
-                EntityType.CONE -> {
-                    val isCircleView = (current2DPlane == ViewportMode.TOP)
-                    if (isCircleView) {
-                        val screenRad = entity.radius * zoom
-                        drawCircle(
-                            color = layerColor.copy(alpha = if (isSelected) 0.35f else 0.15f),
-                            center = screenCenter,
-                            radius = screenRad
-                        )
-                        drawCircle(
-                            color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                            center = screenCenter,
-                            radius = screenRad,
-                            style = Stroke(width = if (isSelected) 3f else 1.8f)
-                        )
-                        // Nested origin center vertex crosshair index icon
-                        drawLine(
-                            color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                            start = Offset(screenCenter.x - 12f, screenCenter.y),
-                            end = Offset(screenCenter.x + 12f, screenCenter.y),
-                            strokeWidth = 1f
-                        )
-                        drawLine(
-                            color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                            start = Offset(screenCenter.x, screenCenter.y - 12f),
-                            end = Offset(screenCenter.x, screenCenter.y + 12f),
-                            strokeWidth = 1f
-                        )
-                    } else {
-                        // Triangle Elevation Profile Projection
-                        val baseW = entity.radius * 2 * zoom
-                        val h = entity.height * zoom
-                        val path = Path().apply {
-                            moveTo(screenCenter.x, screenCenter.y - h / 2) // peak
-                            lineTo(screenCenter.x - baseW / 2, screenCenter.y + h / 2) // base-left
-                            lineTo(screenCenter.x + baseW / 2, screenCenter.y + h / 2) // base-right
-                            close()
+            } else {
+                val geom = generateEntityGeometry(entity)
+                val vertices = geom.first
+                val faces = geom.second
+                faces.forEach { face ->
+                    val path = Path()
+                    var valid = false
+                    face.forEachIndexed { i, vIdx ->
+                        if (vIdx < vertices.size) {
+                            val wp = vertices[vIdx]
+                            val px = when (current2DPlane) {
+                                ViewportMode.TOP -> wp.x
+                                ViewportMode.FRONT -> wp.x
+                                ViewportMode.RIGHT -> wp.y
+                                else -> wp.x
+                            }
+                            val py = when (current2DPlane) {
+                                ViewportMode.TOP -> wp.y
+                                ViewportMode.FRONT -> wp.z
+                                ViewportMode.RIGHT -> wp.z
+                                else -> wp.y
+                            }
+                            val screenPos = Offset(centerX + panX + (px * zoom), centerY + panY - (py * zoom))
+                            if (i == 0) {
+                                path.moveTo(screenPos.x, screenPos.y)
+                            } else {
+                                path.lineTo(screenPos.x, screenPos.y)
+                            }
+                            valid = true
                         }
+                    }
+                    if (valid && face.size > 2) {
+                        path.close()
                         drawPath(
                             path = path,
-                            color = layerColor.copy(alpha = if (isSelected) 0.35f else 0.15f)
+                            color = layerColor.copy(alpha = if (isSelected) 0.28f else 0.08f)
                         )
                         drawPath(
                             path = path,
                             color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                            style = Stroke(width = if (isSelected) 3f else 1.8f)
+                            style = Stroke(width = if (isSelected) 2.5f else 1.2f)
                         )
                     }
-                }
-                else -> {
-                    // Fallback to bounding box contour
-                    val scaleW = 80f * zoom
-                    val scaleH = 80f * zoom
-                    drawRect(
-                        color = layerColor.copy(alpha = 0.12f),
-                        topLeft = Offset(screenCenter.x - scaleW / 2, screenCenter.y - scaleH / 2),
-                        size = androidx.compose.ui.geometry.Size(scaleW, scaleH)
-                    )
-                    drawRect(
-                        color = if (isSelected) Color(0xFFFFD54F) else layerColor,
-                        topLeft = Offset(screenCenter.x - scaleW / 2, screenCenter.y - scaleH / 2),
-                        size = androidx.compose.ui.geometry.Size(scaleW, scaleH),
-                        style = Stroke(width = 1f)
-                    )
                 }
             }
 
@@ -2165,6 +3764,41 @@ fun Blueprint2DCanvas(
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                     )
+                )
+            }
+        }
+
+        // 4. Draw interactive 2D Vertex Handles
+        if (selectedEntity != null) {
+            val vertices = getEditableVertices2D(selectedEntity, cameraState, current2DPlane, size.width, size.height)
+            vertices.forEach { ev ->
+                // Outer glow
+                drawCircle(
+                    color = Color(0x33FFFFFF),
+                    radius = 18f,
+                    center = ev.screenPos
+                )
+                // Middle border ring
+                drawCircle(
+                    color = Color(0x991E2E4E),
+                    radius = 11f,
+                    center = ev.screenPos,
+                    style = Stroke(width = 3f)
+                )
+                // Inner filled color (active Yellow, or Blue/Green)
+                val isDragged = (draggedVertexIndex == ev.index)
+                val color = if (isDragged) Color(0xFFFFEB3B) else Color(0xFF00FFD5)
+                drawCircle(
+                    color = color,
+                    radius = 7.5f,
+                    center = ev.screenPos
+                )
+                // White accent ring
+                drawCircle(
+                    color = Color.White,
+                    radius = 7.5f,
+                    center = ev.screenPos,
+                    style = Stroke(width = 1.8f)
                 )
             }
         }
